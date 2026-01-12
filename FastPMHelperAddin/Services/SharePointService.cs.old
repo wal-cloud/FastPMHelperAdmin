@@ -1,0 +1,192 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security;
+using System.Threading.Tasks;
+using Microsoft.SharePoint.Client;
+using FastPMHelperAddin.Models;
+
+namespace FastPMHelperAddin.Services
+{
+    public class SharePointService
+    {
+        private readonly string _siteUrl;
+        private readonly string _username;
+        private readonly string _password;
+        private readonly string _listName = "ProjectActions";
+
+        public SharePointService(string siteUrl, string username, string password)
+        {
+            _siteUrl = siteUrl;
+            _username = username;
+            _password = password;
+        }
+
+        private ClientContext GetContext()
+        {
+            var context = new ClientContext(_siteUrl);
+
+            var securePassword = new SecureString();
+            foreach (char c in _password)
+                securePassword.AppendChar(c);
+
+            var credentials = new SharePointOnlineCredentials(_username, securePassword);
+            context.Credentials = credentials;
+            return context;
+        }
+
+        public async Task<List<ActionItem>> FetchOpenActionsAsync()
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    using (var context = GetContext())
+                    {
+                        var list = context.Web.Lists.GetByTitle(_listName);
+                        var camlQuery = new CamlQuery
+                        {
+                            ViewXml = @"<View>
+                                <Query>
+                                    <Where>
+                                        <Neq>
+                                            <FieldRef Name='Status'/>
+                                            <Value Type='Choice'>Closed</Value>
+                                        </Neq>
+                                    </Where>
+                                </Query>
+                            </View>"
+                        };
+
+                        var items = list.GetItems(camlQuery);
+                        context.Load(items);
+                        context.ExecuteQuery();
+
+                        var actionItems = new List<ActionItem>();
+                        foreach (var item in items)
+                        {
+                            actionItems.Add(new ActionItem
+                            {
+                                Id = item.Id,
+                                Title = item["Title"]?.ToString() ?? string.Empty,
+                                Status = item["Status"]?.ToString() ?? "Open",
+                                BallHolder = item["BallHolder"]?.ToString() ?? string.Empty,
+                                HistoryLog = item["HistoryLog"]?.ToString() ?? string.Empty,
+                                LinkedThreadIDs = item["LinkedThreadIDs"]?.ToString() ?? string.Empty,
+                                ActiveMessageIDs = item["ActiveMessageIDs"]?.ToString() ?? string.Empty
+                            });
+                        }
+
+                        return actionItems;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SharePoint fetch error: {ex.Message}");
+                    throw;
+                }
+            });
+        }
+
+        public async Task<int> CreateActionAsync(string title, string ballHolder,
+            string conversationId, string internetMessageId, string initialNote)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    using (var context = GetContext())
+                    {
+                        var list = context.Web.Lists.GetByTitle(_listName);
+                        var itemCreateInfo = new ListItemCreationInformation();
+                        var newItem = list.AddItem(itemCreateInfo);
+
+                        newItem["Title"] = title;
+                        newItem["Status"] = "Open";
+                        newItem["BallHolder"] = ballHolder;
+                        newItem["LinkedThreadIDs"] = conversationId;
+                        newItem["ActiveMessageIDs"] = internetMessageId;
+                        newItem["HistoryLog"] = $"[{DateTime.Now:yyyy-MM-dd HH:mm}] Created: {initialNote}";
+
+                        newItem.Update();
+                        context.ExecuteQuery();
+
+                        return newItem.Id;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SharePoint create error: {ex.Message}");
+                    throw;
+                }
+            });
+        }
+
+        public async Task UpdateActionAsync(int itemId, string newMessageId,
+            string ballHolder, string updateNote)
+        {
+            await Task.Run(() =>
+            {
+                try
+                {
+                    using (var context = GetContext())
+                    {
+                        var list = context.Web.Lists.GetByTitle(_listName);
+                        var item = list.GetItemById(itemId);
+                        context.Load(item);
+                        context.ExecuteQuery();
+
+                        // Append to ActiveMessageIDs
+                        string currentIds = item["ActiveMessageIDs"]?.ToString() ?? string.Empty;
+                        var idList = ActionItem.ParseIds(currentIds);
+                        if (!idList.Contains(newMessageId))
+                            idList.Add(newMessageId);
+                        item["ActiveMessageIDs"] = string.Join("; ", idList);
+
+                        // Update BallHolder
+                        item["BallHolder"] = ballHolder;
+
+                        // Append to HistoryLog
+                        string currentLog = item["HistoryLog"]?.ToString() ?? string.Empty;
+                        string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                        item["HistoryLog"] = $"{currentLog}\n\n[{timestamp}] {updateNote}";
+
+                        item.Update();
+                        context.ExecuteQuery();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SharePoint update error: {ex.Message}");
+                    throw;
+                }
+            });
+        }
+
+        public async Task SetStatusAsync(int itemId, string newStatus)
+        {
+            await Task.Run(() =>
+            {
+                try
+                {
+                    using (var context = GetContext())
+                    {
+                        var list = context.Web.Lists.GetByTitle(_listName);
+                        var item = list.GetItemById(itemId);
+                        context.Load(item);
+                        context.ExecuteQuery();
+
+                        item["Status"] = newStatus;
+                        item.Update();
+                        context.ExecuteQuery();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SharePoint status update error: {ex.Message}");
+                    throw;
+                }
+            });
+        }
+    }
+}

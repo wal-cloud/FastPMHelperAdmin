@@ -1,0 +1,2 @@
+﻿Severity	Code	Description	Project	File	Line	Suppression State
+Error		'System.Windows.Controls.Border.Style' property has already been set and can be set only once. Line 231 Position 18.	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	231	
