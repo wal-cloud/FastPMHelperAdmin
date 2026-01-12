@@ -18,6 +18,7 @@ namespace FastPMHelperAddin.UI
         private LLMService _llmService;
         private ActionMatchingService _matchingService;
         private AutoClassifierService _classifierService;
+        private DirectEmailRetrievalService _emailRetrievalService;
 
         private List<ActionItem> _openActions;
         private Outlook.MailItem _currentMail;
@@ -70,6 +71,7 @@ namespace FastPMHelperAddin.UI
                 _llmService = new LLMService(config.GeminiApiKey);
                 _matchingService = new ActionMatchingService();
                 _classifierService = new AutoClassifierService();
+                _emailRetrievalService = new DirectEmailRetrievalService();
 
                 System.Diagnostics.Debug.WriteLine("Services initialized successfully with Google Sheets");
             }
@@ -91,7 +93,7 @@ namespace FastPMHelperAddin.UI
             }
         }
 
-        private async void LoadActionsAsync()
+        private async Task LoadActionsAsync()
         {
             try
             {
@@ -158,11 +160,13 @@ namespace FastPMHelperAddin.UI
             {
                 ClearLinkedActionFields();
                 LinkedActionBorder.Background = new SolidColorBrush(Color.FromRgb(240, 240, 240)); // Grey
+                RelatedMessagesListView.ItemsSource = null;
             }
             else
             {
                 PopulateLinkedActionFields(selectedAction);
                 LinkedActionBorder.Background = new SolidColorBrush(Color.FromRgb(255, 255, 204)); // Pastel yellow
+                LoadRelatedMessagesAsync(selectedAction);
 
                 // Store previous values for change detection
                 _previousActionState = new ActionFieldState
@@ -205,6 +209,7 @@ namespace FastPMHelperAddin.UI
                 LinkedTitleTextBox.Text = "";
                 LinkedBallHolderTextBox.Text = "";
                 LinkedDueDatePicker.SelectedDate = null;
+                RelatedMessagesListView.ItemsSource = null;
             });
 
             _previousActionState = null;
@@ -388,6 +393,9 @@ namespace FastPMHelperAddin.UI
             bool hasSelection = ActionComboBox.SelectedItem != null;
             bool hasEmail = _currentMail != null;
 
+            // Enable Create and Create Multiple buttons when email is selected
+            CreateMultipleButton.IsEnabled = hasEmail;
+
             UpdateButton.IsEnabled = hasSelection && hasEmail;
             CloseButton.IsEnabled = hasSelection;
             ReopenButton.IsEnabled = hasSelection;
@@ -407,6 +415,23 @@ namespace FastPMHelperAddin.UI
 
             // Queue the action
             _actionQueue.Enqueue(() => ProcessCreateActionAsync(mailToProcess));
+            ProcessQueue();
+        }
+
+        private void CreateMultipleButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentMail == null)
+            {
+                MessageBox.Show("Please select an email first.", "No Email",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Capture the current mail before queuing
+            var mailToProcess = _currentMail;
+
+            // Queue the action
+            _actionQueue.Enqueue(() => ProcessCreateMultipleActionsAsync(mailToProcess));
             ProcessQueue();
         }
 
@@ -499,7 +524,7 @@ namespace FastPMHelperAddin.UI
                     SetStatus("Creating action in Google Sheets...");
 
                     string conversationId = mail.ConversationID;
-                    string messageId = GetInternetMessageId(mail);
+                    string emailReference = GetEmailReference(mail);
                     DateTime emailDate = GetEmailDate(mail);
                     int dueDays = GetDefaultDueDays();
 
@@ -509,7 +534,7 @@ namespace FastPMHelperAddin.UI
                         title,
                         ballHolder,
                         conversationId,
-                        messageId,
+                        emailReference,
                         description,
                         emailDate,
                         dueDays
@@ -527,6 +552,180 @@ namespace FastPMHelperAddin.UI
             {
                 SetStatus($"Error: {ex.Message}");
                 MessageBox.Show($"Error creating action: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async Task ProcessCreateMultipleActionsAsync(Outlook.MailItem mail)
+        {
+            try
+            {
+                SetStatus("Extracting multiple actions from email...");
+
+                // Extract email data
+                string body = mail.Body ?? "";
+                string senderEmail = mail.SenderEmailAddress ?? "";
+                string toRecipients = mail.To ?? "";
+                string subject = mail.Subject ?? "";
+
+                // Auto-classify Project & Package (shared by all actions)
+                SetStatus("Auto-classifying Project and Package...");
+                var classification = _classifierService.Classify(subject, body, senderEmail, toRecipients);
+
+                string suggestedProject = classification.SuggestedProjectID ?? "Random";
+                string suggestedPackage = classification.SuggestedPackageID ?? "";
+
+                // Handle classification ambiguity (show disambiguation dialog)
+                if (classification.IsAmbiguous)
+                {
+                    var ambiguityDialog = new AmbiguityResolutionDialog
+                    {
+                        AmbiguityReason = classification.AmbiguityReason,
+                        Candidates = classification.Candidates
+                    };
+
+                    if (ambiguityDialog.ShowDialog() == true)
+                    {
+                        // User selected from candidates
+                        var selectedProject = ambiguityDialog.SelectedCandidates
+                            .FirstOrDefault(c => c.Type == "PROJECT");
+                        var selectedPackage = ambiguityDialog.SelectedCandidates
+                            .FirstOrDefault(c => c.Type == "PACKAGE");
+
+                        suggestedProject = selectedProject?.Name ?? suggestedProject;
+                        suggestedPackage = selectedPackage?.Name ?? suggestedPackage;
+                    }
+                    else
+                    {
+                        SetStatus("Action creation cancelled");
+                        return;
+                    }
+                }
+
+                // Call LLM to extract MULTIPLE actions
+                SetStatus("Analyzing email for multiple actions...");
+                var extractions = await _llmService.GetMultipleExtractionsAsync(body, senderEmail, subject);
+
+                if (extractions == null || extractions.Count == 0)
+                {
+                    MessageBox.Show("No actions found in this email.\n\nThe email may not contain clear action items.",
+                        "No Actions Found",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    SetStatus("No actions found");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"LLM extracted {extractions.Count} actions");
+
+                // Show confirmation dialog if enabled
+                bool confirmActions = ConfirmActionsCheckBox?.IsChecked == true;
+
+                int successCount = 0;
+                int failedCount = 0;
+                List<string> createdTitles = new List<string>();
+
+                // Get shared properties
+                string conversationId = mail.ConversationID;
+                string emailReference = GetEmailReference(mail);
+                DateTime sentOn = GetEmailDate(mail);
+                int defaultDueDays = GetDefaultDueDays();
+
+                // Create each action
+                for (int i = 0; i < extractions.Count; i++)
+                {
+                    var extraction = extractions[i];
+                    int actionNumber = i + 1;
+
+                    try
+                    {
+                        SetStatus($"Creating action {actionNumber} of {extractions.Count}: {extraction.Title}");
+
+                        string finalTitle = extraction.Title;
+                        string finalBallHolder = extraction.BallHolder;
+                        string finalDescription = extraction.Description;
+                        string finalProject = suggestedProject;
+                        string finalPackage = suggestedPackage;
+
+                        // Show confirmation dialog for THIS action if enabled
+                        if (confirmActions)
+                        {
+                            var confirmDialog = new CreateActionDialog
+                            {
+                                Project = finalProject,
+                                Package = finalPackage,
+                                ActionTitle = finalTitle,
+                                BallHolder = finalBallHolder,
+                                Description = finalDescription
+                            };
+
+                            bool? dialogResult = confirmDialog.ShowDialog();
+                            if (dialogResult != true)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Action {actionNumber} cancelled by user");
+                                failedCount++;
+                                continue; // Skip this action
+                            }
+
+                            // Get potentially edited values
+                            finalProject = confirmDialog.Project;
+                            finalPackage = confirmDialog.Package;
+                            finalTitle = confirmDialog.ActionTitle;
+                            finalBallHolder = confirmDialog.BallHolder;
+                            finalDescription = confirmDialog.Description;
+                        }
+
+                        // Create action in Google Sheets
+                        string initialNote = finalDescription;
+
+                        int newActionId = await _googleSheetsService.CreateActionAsync(
+                            finalProject,
+                            finalPackage,
+                            finalTitle,
+                            finalBallHolder,
+                            conversationId,
+                            emailReference,
+                            initialNote,
+                            sentOn,
+                            defaultDueDays
+                        );
+
+                        System.Diagnostics.Debug.WriteLine($"Created action {actionNumber}: ID={newActionId}, Title={finalTitle}");
+                        successCount++;
+                        createdTitles.Add(finalTitle);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error creating action {actionNumber}: {ex.Message}");
+                        failedCount++;
+                    }
+                }
+
+                // Reload actions from Google Sheets
+                await LoadActionsAsync();
+
+                // Show summary
+                string summary = $"Successfully created {successCount} action(s)";
+                if (failedCount > 0)
+                    summary += $"\n{failedCount} action(s) failed or were cancelled";
+
+                if (createdTitles.Count > 0)
+                {
+                    summary += "\n\nCreated actions:\n";
+                    for (int i = 0; i < createdTitles.Count; i++)
+                    {
+                        summary += $"{i + 1}. {createdTitles[i]}\n";
+                    }
+                }
+
+                MessageBox.Show(summary, "Multiple Actions Created",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+
+                SetStatus($"Created {successCount} action(s) successfully");
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Error creating multiple actions");
+                MessageBox.Show($"Error creating actions:\n{ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -587,13 +786,13 @@ namespace FastPMHelperAddin.UI
                 {
                     SetStatus("Updating action in Google Sheets...");
 
-                    string messageId = GetInternetMessageId(mail);
+                    string emailReference = GetEmailReference(mail);
                     DateTime emailDate = GetEmailDate(mail);
                     int dueDays = GetDefaultDueDays();
 
                     await _googleSheetsService.UpdateActionAsync(
                         selectedAction.Id,
-                        messageId,
+                        emailReference,
                         ballHolder,
                         updateNote,
                         emailDate,      // SentOn
@@ -629,17 +828,51 @@ namespace FastPMHelperAddin.UI
 
             try
             {
+                SetStatus("Generating closure summary...");
+
+                // Get email details
                 DateTime emailDate = GetEmailDate(_currentMail);
-                int dueDays = GetDefaultDueDays();
+                string closingEmailReference = GetEmailReference(_currentMail);
 
-                await _googleSheetsService.SetStatusAsync(selectedAction.Id, "Closed", emailDate, dueDays);
+                if (string.IsNullOrWhiteSpace(closingEmailReference))
+                {
+                    MessageBox.Show("Could not extract email reference. Please try again.", "Error",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
 
-                MessageBox.Show("Action closed.", "Success",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-                LoadActionsAsync();
+                // Generate LLM closure summary
+                string actionContext = $"Title: {selectedAction.Title}\nProject: {selectedAction.Project}\nPackage: {selectedAction.Package}";
+                string closureNote;
+
+                try
+                {
+                    SetStatus("Analyzing email for closure summary...");
+                    closureNote = await _llmService.GetClosureSummaryAsync(_currentMail.Body, actionContext);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"LLM closure summary failed: {ex.Message}");
+                    closureNote = "Action closed";
+                }
+
+                SetStatus("Closing action...");
+
+                // Close the action with LLM-generated note, email reference, and date
+                await _googleSheetsService.CloseActionAsync(
+                    selectedAction.Id,
+                    closureNote,
+                    closingEmailReference,
+                    emailDate
+                );
+
+                SetStatus("Action closed successfully");
+
+                await LoadActionsAsync();
             }
             catch (Exception ex)
             {
+                SetStatus("Error closing action");
                 MessageBox.Show($"Error closing action: {ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
@@ -669,19 +902,55 @@ namespace FastPMHelperAddin.UI
             }
         }
 
-        private string GetInternetMessageId(Outlook.MailItem mail)
+        /// <summary>
+        /// Extract complete email reference in format: StoreID|EntryID|InternetMessageId
+        /// </summary>
+        private string GetEmailReference(Outlook.MailItem mail)
         {
-            const string PR_INTERNET_MESSAGE_ID =
-                "http://schemas.microsoft.com/mapi/proptag/0x1035001E";
+            if (mail == null)
+                return string.Empty;
 
             try
             {
-                var accessor = mail.PropertyAccessor;
-                object value = accessor.GetProperty(PR_INTERNET_MESSAGE_ID);
-                return value?.ToString() ?? string.Empty;
+                // Get StoreID from the mail's parent Store
+                string storeId = mail.Parent is Outlook.Folder folder
+                    ? folder.Store.StoreID
+                    : string.Empty;
+
+                // Get EntryID from the mail item
+                string entryId = mail.EntryID ?? string.Empty;
+
+                // Get InternetMessageId using PropertyAccessor
+                const string PR_INTERNET_MESSAGE_ID =
+                    "http://schemas.microsoft.com/mapi/proptag/0x1035001E";
+
+                string internetMessageId = string.Empty;
+                try
+                {
+                    var accessor = mail.PropertyAccessor;
+                    object value = accessor.GetProperty(PR_INTERNET_MESSAGE_ID);
+                    internetMessageId = value?.ToString() ?? string.Empty;
+                }
+                catch
+                {
+                    internetMessageId = string.Empty;
+                }
+
+                // Validate all three components exist
+                if (string.IsNullOrWhiteSpace(storeId) ||
+                    string.IsNullOrWhiteSpace(entryId) ||
+                    string.IsNullOrWhiteSpace(internetMessageId))
+                {
+                    System.Diagnostics.Debug.WriteLine("Warning: Could not extract complete email reference");
+                    return string.Empty;
+                }
+
+                // Return pipe-delimited format
+                return $"{storeId}|{entryId}|{internetMessageId}";
             }
-            catch
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"Error extracting email reference: {ex.Message}");
                 return string.Empty;
             }
         }
@@ -766,6 +1035,122 @@ namespace FastPMHelperAddin.UI
                 StatusTextBlock.Text = message;
                 System.Diagnostics.Debug.WriteLine($"Status: {message}");
             });
+        }
+
+        private async Task LoadRelatedMessagesAsync(ActionItem action)
+        {
+            if (action == null)
+            {
+                RelatedMessagesListView.ItemsSource = null;
+                return;
+            }
+
+            try
+            {
+                // Parse email references from action
+                var emailReferences = action.ParseActiveMessageIds();
+
+                if (emailReferences.Count == 0)
+                {
+                    RelatedMessagesListView.ItemsSource = null;
+                    return;
+                }
+
+                SetStatus($"Loading {emailReferences.Count} related messages...");
+
+                // Retrieve emails in background thread
+                var relatedEmails = await Task.Run(() =>
+                    _emailRetrievalService.RetrieveEmailsByReferences(emailReferences));
+
+                // Update UI on UI thread
+                Dispatcher.Invoke(() =>
+                {
+                    RelatedMessagesListView.ItemsSource = relatedEmails;
+                    SetStatus($"Loaded {relatedEmails.Count} related messages");
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading related messages: {ex.Message}");
+                SetStatus("Error loading related messages");
+                Dispatcher.Invoke(() =>
+                {
+                    RelatedMessagesListView.ItemsSource = null;
+                });
+            }
+        }
+
+        private void RelatedMessagesListView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            var selectedItem = RelatedMessagesListView.SelectedItem as RelatedEmailItem;
+            if (selectedItem?.MailItem != null)
+            {
+                try
+                {
+                    // Open email in modeless window (non-blocking)
+                    selectedItem.MailItem.Display(false);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error opening email: {ex.Message}");
+                    MessageBox.Show($"Error opening email:\n{ex.Message}", "Error",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void OpenAllMessagesButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (RelatedMessagesListView.ItemsSource == null)
+                    return;
+
+                var relatedEmails = RelatedMessagesListView.ItemsSource as System.Collections.Generic.List<RelatedEmailItem>;
+                if (relatedEmails == null || relatedEmails.Count == 0)
+                {
+                    MessageBox.Show("No related messages to open.", "Information",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                int opened = 0;
+                int failed = 0;
+
+                foreach (var email in relatedEmails)
+                {
+                    if (email?.MailItem != null)
+                    {
+                        try
+                        {
+                            // Open email in modeless window (non-blocking)
+                            email.MailItem.Display(false);
+                            opened++;
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Error opening email: {ex.Message}");
+                            failed++;
+                        }
+                    }
+                }
+
+                if (failed > 0)
+                {
+                    MessageBox.Show($"Opened {opened} messages. Failed to open {failed} messages.", "Open All",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                else
+                {
+                    SetStatus($"Opened {opened} related messages");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error opening all messages: {ex.Message}");
+                MessageBox.Show($"Error opening messages:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 }

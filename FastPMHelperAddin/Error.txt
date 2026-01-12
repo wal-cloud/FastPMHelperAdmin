@@ -1,2 +1,36 @@
-﻿Severity	Code	Description	Project	File	Line	Suppression State
-Error		'System.Windows.Controls.Border.Style' property has already been set and can be set only once. Line 231 Position 18.	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	231	
+﻿Gemini API Response: {
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "```json\n{\n  \"title\": \"Review DMW Hydrotest/P&P/PWHT sequence\",\n  \"ballHolder\": \"Yanko Serifi\",\n  \"description\": \"Yanko needs to review the DMW Hydrotest/P&P/PWHT sequence with UGL. The current sequence is not clear and requires confirmation from UGL.\"\n}\n```"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 1454,
+    "candidatesTokenCount": 81,
+    "totalTokenCount": 3105,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1454
+      }
+    ],
+    "thoughtsTokenCount": 1570
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "GoFlab2wCMrRjuMPgaaPoAw"
+}
+
+Extracted LLM text: ```json
+
+
+
+

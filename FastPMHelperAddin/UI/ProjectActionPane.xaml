@@ -204,12 +204,17 @@
 
         <!-- Action Buttons + Status -->
         <StackPanel Grid.Row="2" Margin="0,0,0,12">
-            <!-- Action Buttons in 2x2 Grid -->
-            <UniformGrid Rows="2" Columns="2" Margin="0,0,0,12">
+            <!-- Action Buttons in 2x3 Grid -->
+            <UniformGrid Rows="2" Columns="3" Margin="0,0,0,12">
                 <Button x:Name="CreateButton" Content="Create New"
                         Style="{StaticResource ModernButtonPrimary}"
                         Click="CreateButton_Click"
                         Margin="0,0,4,4"/>
+                <Button x:Name="CreateMultipleButton" Content="Create Multiple"
+                        Style="{StaticResource ModernButtonSecondary}"
+                        Click="CreateMultipleButton_Click"
+                        Margin="0,0,4,4"
+                        ToolTip="Extract and create multiple actions from this email"/>
                 <Button x:Name="UpdateButton" Content="Update"
                         Style="{StaticResource ModernButtonPrimary}"
                         Click="UpdateButton_Click"
@@ -309,6 +314,9 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="200"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <!-- Project -->
@@ -389,6 +397,75 @@
                                     Grid.Row="4" Grid.Column="1"
                                     Style="{StaticResource ModernDatePicker}"
                                     SelectedDateFormat="Short"/>
+
+                        <!-- Related Messages -->
+                        <TextBlock Grid.Row="5" Grid.Column="0"
+                                   Grid.ColumnSpan="2"
+                                   Text="Related Messages"
+                                   FontWeight="SemiBold"
+                                   FontSize="11"
+                                   FontFamily="Segoe UI"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   Margin="0,12,0,4"/>
+
+                        <ListView x:Name="RelatedMessagesListView"
+                                  Grid.Row="6" Grid.Column="0"
+                                  Grid.ColumnSpan="2"
+                                  Height="200"
+                                  BorderThickness="1"
+                                  BorderBrush="{StaticResource BorderSubtle}"
+                                  Background="White"
+                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                  MouseDoubleClick="RelatedMessagesListView_MouseDoubleClick">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Date" Width="120">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding DateDisplay}"
+                                                           FontSize="11"
+                                                           FontFamily="Segoe UI"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+
+                                    <GridViewColumn Header="From" Width="150">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding FromDisplay}"
+                                                           FontSize="11"
+                                                           FontFamily="Segoe UI"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding FromDisplay}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+
+                                    <GridViewColumn Header="Subject" Width="250">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding SubjectDisplay}"
+                                                           FontSize="11"
+                                                           FontFamily="Segoe UI"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding Subject}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+
+                        <!-- Open All Button -->
+                        <Button x:Name="OpenAllMessagesButton"
+                                Grid.Row="7" Grid.Column="0"
+                                Grid.ColumnSpan="2"
+                                Content="Open All Messages"
+                                Height="30"
+                                Margin="0,8,0,0"
+                                Style="{StaticResource ModernButtonSecondary}"
+                                Click="OpenAllMessagesButton_Click"
+                                ToolTip="Open all related messages"/>
                     </Grid>
                 </StackPanel>
             </ScrollViewer>

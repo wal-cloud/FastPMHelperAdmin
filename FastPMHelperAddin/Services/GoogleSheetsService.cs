@@ -147,7 +147,7 @@ namespace FastPMHelperAddin.Services
             }
         }
 
-        public async Task<int> CreateActionAsync(string project, string package, string title, string ballHolder, string conversationId, string internetMessageId, string initialNote, DateTime sentOn, int dueDaysOffset)
+        public async Task<int> CreateActionAsync(string project, string package, string title, string ballHolder, string conversationId, string emailReference, string initialNote, DateTime sentOn, int dueDaysOffset)
         {
             try
             {
@@ -177,7 +177,7 @@ namespace FastPMHelperAddin.Services
                     dueDate.ToString("dd/MM/yyyy"),                                  // Column H: DueDate
                     $"[{DateTime.Now:dd/MM/yyyy}] Created: {initialNote}",          // Column I: HistoryLog
                     conversationId,                                                   // Column J: LinkedThreadIDs
-                    internetMessageId                                                 // Column K: ActiveMessageIDs
+                    emailReference                                                    // Column K: ActiveMessageIDs (NEW FORMAT: StoreID|EntryID|InternetMessageId)
                 };
 
                 var appendRange = $"{_sheetName}!A{newRowNumber}:K{newRowNumber}";
@@ -201,7 +201,7 @@ namespace FastPMHelperAddin.Services
             }
         }
 
-        public async Task UpdateActionAsync(int itemId, string newMessageId, string ballHolder, string updateNote, DateTime sentOn, int dueDaysOffset)
+        public async Task UpdateActionAsync(int itemId, string newEmailReference, string ballHolder, string updateNote, DateTime sentOn, int dueDaysOffset)
         {
             try
             {
@@ -221,8 +221,8 @@ namespace FastPMHelperAddin.Services
                 // Append to ActiveMessageIDs
                 string currentIds = GetCellValue(currentRow, "ActiveMessageIDs");
                 var idList = ActionItemModel.ParseIds(currentIds);
-                if (!idList.Contains(newMessageId))
-                    idList.Add(newMessageId);
+                if (!idList.Contains(newEmailReference))
+                    idList.Add(newEmailReference);
 
                 // Append to HistoryLog
                 string currentLog = GetCellValue(currentRow, "HistoryLog");
@@ -306,6 +306,86 @@ namespace FastPMHelperAddin.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Google Sheets status update error: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task CloseActionAsync(int itemId, string closureNote, string closingEmailReference, DateTime sentOn)
+        {
+            try
+            {
+                await EnsureHeaderRowAsync();
+                var service = await _authService.GetSheetsServiceAsync();
+
+                // Fetch current row to get HistoryLog and ActiveMessageIDs
+                var rowRange = $"{_sheetName}!A{itemId}:K{itemId}";
+                var getRequest = service.Spreadsheets.Values.Get(_spreadsheetId, rowRange);
+                var response = await getRequest.ExecuteAsync();
+
+                if (response.Values == null || response.Values.Count == 0)
+                    throw new Exception($"Action with ID {itemId} not found");
+
+                var currentRow = response.Values[0];
+
+                // Append to HistoryLog with closure note
+                string currentLog = GetCellValue(currentRow, "HistoryLog");
+                string timestamp = DateTime.Now.ToString("dd/MM/yyyy");
+                string updatedLog = $"{currentLog}\n\n[{timestamp}] Closed: {closureNote}";
+
+                // Append to ActiveMessageIDs
+                string currentIds = GetCellValue(currentRow, "ActiveMessageIDs");
+                var idList = ActionItemModel.ParseIds(currentIds);
+                if (!idList.Contains(closingEmailReference))
+                    idList.Add(closingEmailReference);
+
+                // Update: Status=Closed, BallHolder=empty, SentOn=closing email date, DueDate=empty, HistoryLog, ActiveMessageIDs
+                var updates = new List<ValueRange>
+                {
+                    new ValueRange
+                    {
+                        Range = $"{_sheetName}!E{itemId}",  // Status
+                        Values = new List<IList<object>> { new List<object> { "Closed" } }
+                    },
+                    new ValueRange
+                    {
+                        Range = $"{_sheetName}!F{itemId}",  // BallHolder (clear it)
+                        Values = new List<IList<object>> { new List<object> { "" } }
+                    },
+                    new ValueRange
+                    {
+                        Range = $"{_sheetName}!G{itemId}",  // SentOn
+                        Values = new List<IList<object>> { new List<object> { sentOn.ToString("dd/MM/yyyy") } }
+                    },
+                    new ValueRange
+                    {
+                        Range = $"{_sheetName}!H{itemId}",  // DueDate (clear it)
+                        Values = new List<IList<object>> { new List<object> { "" } }
+                    },
+                    new ValueRange
+                    {
+                        Range = $"{_sheetName}!I{itemId}",  // HistoryLog
+                        Values = new List<IList<object>> { new List<object> { updatedLog } }
+                    },
+                    new ValueRange
+                    {
+                        Range = $"{_sheetName}!K{itemId}",  // ActiveMessageIDs
+                        Values = new List<IList<object>> { new List<object> { string.Join("; ", idList) } }
+                    }
+                };
+
+                var batchUpdateRequest = new BatchUpdateValuesRequest
+                {
+                    ValueInputOption = "RAW",
+                    Data = updates
+                };
+
+                await service.Spreadsheets.Values.BatchUpdate(batchUpdateRequest, _spreadsheetId).ExecuteAsync();
+
+                System.Diagnostics.Debug.WriteLine($"Closed action {itemId} with note: {closureNote}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Google Sheets close action error: {ex.Message}");
                 throw;
             }
         }

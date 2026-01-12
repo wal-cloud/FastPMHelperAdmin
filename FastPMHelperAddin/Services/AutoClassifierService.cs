@@ -65,7 +65,7 @@ namespace FastPMHelperAddin.Services
         }
 
         /// <summary>
-        /// Classify an email using Universal Scoring System with back-propagation
+        /// Classify an email using Universal Scoring System with back-propagation and Project Keyword Exclusion
         /// </summary>
         public ClassificationResult Classify(string subject, string body, string sender, string toRecipients = "")
         {
@@ -73,31 +73,48 @@ namespace FastPMHelperAddin.Services
             string searchText = $"{subject} {body}".ToLowerInvariant();
             string normalizedSender = sender?.ToLowerInvariant() ?? string.Empty;
 
+            // Prepare sender list (FROM + TO)
+            var senderList = new List<string> { normalizedSender };
+            var toRecipientsList = ParseRecipients(toRecipients);
+            senderList.AddRange(toRecipientsList);
+
             // Scoring dictionaries
             var projectScores = new Dictionary<string, int>();
             var packageScores = new Dictionary<string, int>();
 
-            // SCORING PHASE: Evaluate ALL rules
+            // Track which text keywords matched at PROJECT level (for deduplication)
+            var projectMatchedKeywords = new HashSet<string>();
+
+            // PHASE 1: Score PROJECTS and capture matched keywords
             foreach (var rule in _rules)
             {
+                if (!rule.Scope.Equals("PROJECT", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 int score = 0;
 
-                // Calculate base score from matches
-                if (!string.IsNullOrWhiteSpace(rule.MatchText) && MatchesText(searchText, rule.MatchText))
+                // Check text match
+                if (!string.IsNullOrWhiteSpace(rule.MatchText))
                 {
-                    score += 100; // Exact text match
+                    var matchedWords = GetMatchedKeywords(searchText, rule.MatchText);
+                    if (matchedWords.Count > 0)
+                    {
+                        score += 100; // Text match
+
+                        // Capture keywords that matched at project level
+                        foreach (var word in matchedWords)
+                        {
+                            projectMatchedKeywords.Add(word);
+                        }
+                    }
                 }
 
+                // Check sender match (BOOSTED from 50 to 200)
                 if (!string.IsNullOrWhiteSpace(rule.MatchSender))
                 {
-                    // Combine FROM sender and TO recipients into a single list for matching
-                    var senderList = new List<string> { normalizedSender };
-                    var toRecipientsList = ParseRecipients(toRecipients);
-                    senderList.AddRange(toRecipientsList);
-
                     if (MatchesSender(senderList, rule.MatchSender))
                     {
-                        score += 50; // Sender or recipient match
+                        score += 200; // Sender match (BOOSTED)
                     }
                 }
 
@@ -107,21 +124,67 @@ namespace FastPMHelperAddin.Services
                     score += (10 - rule.Priority);
                 }
 
-                // Skip if no match
-                if (score == 0)
-                    continue;
-
-                // Apply score based on rule type
-                if (rule.Scope.Equals("PROJECT", StringComparison.OrdinalIgnoreCase))
+                // Apply score
+                if (score > 0)
                 {
-                    // Add to project scores
                     if (!projectScores.ContainsKey(rule.TargetValue))
                         projectScores[rule.TargetValue] = 0;
                     projectScores[rule.TargetValue] += score;
 
                     System.Diagnostics.Debug.WriteLine($"Project '{rule.TargetValue}' scored {score} points");
                 }
-                else if (rule.Scope.Equals("PACKAGE", StringComparison.OrdinalIgnoreCase))
+            }
+
+            // Log captured project keywords
+            if (projectMatchedKeywords.Count > 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"Project-level keywords captured (will be excluded from package scoring): {string.Join(", ", projectMatchedKeywords)}");
+            }
+
+            // PHASE 2: Score PACKAGES with Project Keyword Exclusion
+            foreach (var rule in _rules)
+            {
+                if (!rule.Scope.Equals("PACKAGE", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                int score = 0;
+
+                // Check text match (with Project Keyword Exclusion)
+                if (!string.IsNullOrWhiteSpace(rule.MatchText))
+                {
+                    var matchedWords = GetMatchedKeywords(searchText, rule.MatchText);
+
+                    // Filter out keywords that already matched at PROJECT level
+                    var uniqueWords = matchedWords.Where(w => !projectMatchedKeywords.Contains(w)).ToList();
+
+                    if (uniqueWords.Count > 0)
+                    {
+                        score += 100; // Text match (only for unique keywords)
+                        System.Diagnostics.Debug.WriteLine($"Package '{rule.TargetValue}' matched unique keywords: {string.Join(", ", uniqueWords)}");
+                    }
+                    else if (matchedWords.Count > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Package '{rule.TargetValue}' matched keywords but all were project-level: {string.Join(", ", matchedWords)} - EXCLUDED");
+                    }
+                }
+
+                // Check sender match (BOOSTED from 50 to 200)
+                if (!string.IsNullOrWhiteSpace(rule.MatchSender))
+                {
+                    if (MatchesSender(senderList, rule.MatchSender))
+                    {
+                        score += 200; // Sender match (BOOSTED)
+                    }
+                }
+
+                // Add priority bonus (higher priority = lower number = more points)
+                if (score > 0)
+                {
+                    score += (10 - rule.Priority);
+                }
+
+                // Apply score
+                if (score > 0)
                 {
                     // Add to package scores
                     if (!packageScores.ContainsKey(rule.TargetValue))
@@ -142,6 +205,36 @@ namespace FastPMHelperAddin.Services
 
             // SELECTION PHASE: Determine winners and detect ambiguity
             return SelectWinners(projectScores, packageScores);
+        }
+
+        /// <summary>
+        /// Get list of keywords that actually matched in the search text
+        /// </summary>
+        private List<string> GetMatchedKeywords(string searchText, string matchText)
+        {
+            var matchedKeywords = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(matchText))
+                return matchedKeywords;
+
+            // Split by comma and check each keyword
+            var keywords = matchText.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var keyword in keywords)
+            {
+                string trimmed = keyword.Trim();
+                if (string.IsNullOrEmpty(trimmed))
+                    continue;
+
+                // Use word boundary regex for whole word matching
+                string pattern = $@"\b{Regex.Escape(trimmed.ToLowerInvariant())}\b";
+                if (Regex.IsMatch(searchText, pattern, RegexOptions.IgnoreCase))
+                {
+                    matchedKeywords.Add(trimmed.ToLowerInvariant());
+                }
+            }
+
+            return matchedKeywords;
         }
 
         private ClassificationResult SelectWinners(Dictionary<string, int> projectScores, Dictionary<string, int> packageScores)

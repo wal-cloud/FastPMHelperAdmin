@@ -1,1 +1,68 @@
-﻿<DS7PR10MB514937E0E30290DCE04E2BBBF382A@DS7PR10MB5149.namprd10.prod.outlook.com>; <DS7PR10MB514951146DA0A1DA3C4322A8F381A@DS7PR10MB5149.namprd10.prod.outlook.com>
+﻿Context: I am refining the UniversalClassifier C# logic. I have two specific requirements to fix an "Ambiguity" bug where a generic Project Keyword (like "E2A") is causing false matches on Packages, and where strong Sender signals are being ignored.
+
+The Scenario (The Bug):
+
+Email: From yanko.serifi@ugllimited.com, Subject "Reformer E2A Piping query".
+
+Current Scores:
+
+Project 'AMM25028' (Matches "E2A") = 109 pts.
+
+Package 'Thermowell Supply' (Matches "E2A") = 109 pts.
+
+Package 'Piping Supply' (Matches Sender "ugllimited") = 59 pts.
+
+Result: The system picks 'Thermowell Supply' or marks it Ambiguous.
+
+Desired Result: It must pick 'Piping Supply' because the sender is UGL (99% confidence).
+
+The Logic Updates Required:
+
+1. Implement "Project Keyword Exclusion" (Deduplication)
+
+If a specific word (e.g., "E2A") triggers the Project Match, that word effectively becomes a "Stop Word" for the context of that email.
+
+When calculating Package Scores, if a package rule matches that same word ("E2A"), it receives 0 points for that specific word.
+
+Why: "E2A" identifies the Project, not the specific Package. A package needs unique identifiers (like "Thermowell") to score text points.
+
+2. Boost Sender Priority
+
+Update the scoring weights.
+
+Sender Match: Increase to 200 points (was 50).
+
+Text Match: Keep at 100 points.
+
+Why: A Sender match is a definitive structural link (e.g., UGL only does Piping). A text match is often just contextual noise.
+
+The Request: Please provide the updated Classify method for the UniversalClassifier class that implements:
+
+The captured projectMatchingKeywords logic.
+
+The logic to pass those keywords down to the Package loop and exclude them from scoring.
+
+The updated weighting (Sender > Text).
+
+Example Code Structure to follow:
+
+C#
+
+// 1. First Pass: Score Projects and capture WHICH words matched
+var projectMatches = new Dictionary<string, HashSet<string>>(); // ProjectID -> MatchedWords
+
+// 2. Second Pass: Score Packages
+// If (packageRule.MatchText == "E2A" && projectMatches[CurrentProject].Contains("E2A"))
+// {
+//      Score += 0; // Ignore this word, it's polluted by the project level
+// }
+Why this works
+With this new code:
+
+Project AMM25028 matches "E2A". Score: 109. (System records: "E2A is a generic project word").
+
+Thermowell Supply checks "E2A". System says: "Ignore E2A." Score: 0.
+
+Piping Supply checks Sender "UGL". Score: 200.
+
+Result: Piping Supply wins by a landslide (200 vs 0).
