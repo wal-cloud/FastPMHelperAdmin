@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Forms.Integration;
+using FastPMHelperAddin.Models;
 using FastPMHelperAddin.UI;
 using Outlook = Microsoft.Office.Interop.Outlook;
 
@@ -13,17 +16,16 @@ namespace FastPMHelperAddin
         private Outlook.NameSpace _ns;
         private List<Outlook.Items> _monitoredInboxes = new List<Outlook.Items>();
 
-        private MailExporter _exporter;
         private Microsoft.Office.Tools.CustomTaskPane _taskPane;
         private ProjectActionPane _actionPane;
         private Outlook.Explorer _currentExplorer;
+        private Outlook.Inspectors _inspectors;
 
         private const string RootPath = @"C:\MailPipeline";
         private const string TrackedEmailAccount = "wally.cloud@dynonobel.com";
-        
-        // StoreId identifiers for filtering (hex encoded email addresses in StoreId)
-        private const string PersonalAccountStoreIdHex = "77616C6C79636C6F7564406F75746C6F6F6B2E636F6D"; // wallycloud@outlook.com
-        private const string DynoAccountStoreIdHex = "57616C6C792E436C6F75644064796E6F6E6F62656C2E636F6D"; // Wally.Cloud@dynonobel.com
+
+        // Deferred action property name
+        private const string DEFERRED_PROPERTY_NAME = "FastPMDeferredAction";
 
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
@@ -32,33 +34,7 @@ namespace FastPMHelperAddin
                 _app = Globals.ThisAddIn.Application;
                 _ns = _app.GetNamespace("MAPI");
 
-                // Initialize exporter
-                _exporter = new MailExporter(RootPath, GetSenderEmailAddress);
-
-                // Monitor ALL inboxes across all accounts
-                System.Diagnostics.Debug.WriteLine("=== Setting up inbox monitoring ===");
-                foreach (Outlook.Store store in _ns.Stores)
-                {
-                    try
-                    {
-                        var rootFolder = store.GetRootFolder();
-                        var inbox = GetInboxFolder(rootFolder);
-
-                        if (inbox != null)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Monitoring inbox: {inbox.Name} in store: {store.DisplayName}");
-                            var items = inbox.Items;
-                            items.ItemAdd += InboxItems_ItemAdd;
-                            _monitoredInboxes.Add(items);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Error setting up monitoring for store {store.DisplayName}: {ex.Message}");
-                    }
-                }
-
-                // Monitor Sent Items for ALL accounts
+                // Monitor Sent Items for ALL accounts (for deferred action execution)
                 System.Diagnostics.Debug.WriteLine("=== Setting up Sent Items monitoring ===");
                 foreach (Outlook.Store store in _ns.Stores)
                 {
@@ -93,6 +69,10 @@ namespace FastPMHelperAddin
                         System.Diagnostics.Debug.WriteLine("Hooking up Explorer SelectionChange event...");
                         _currentExplorer.SelectionChange += Explorer_SelectionChange;
                         System.Diagnostics.Debug.WriteLine($"Explorer SelectionChange event hooked successfully (Explorer: {_currentExplorer.GetHashCode()})");
+
+                        // Hook InlineResponse event for inline compose detection
+                        _currentExplorer.InlineResponse += Explorer_InlineResponse;
+                        System.Diagnostics.Debug.WriteLine("Explorer InlineResponse event hooked successfully");
                     }
                     else
                     {
@@ -102,6 +82,18 @@ namespace FastPMHelperAddin
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"Error hooking SelectionChange event: {ex.Message}");
+                }
+
+                // NEW: Wire up Inspectors event for compose window detection
+                try
+                {
+                    _inspectors = _app.Inspectors;
+                    _inspectors.NewInspector += Inspectors_NewInspector;
+                    System.Diagnostics.Debug.WriteLine("Inspectors.NewInspector event hooked successfully");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error hooking Inspectors event: {ex.Message}");
                 }
 
                 System.Diagnostics.Debug.WriteLine("MailPipeline add-in started successfully");
@@ -204,6 +196,37 @@ namespace FastPMHelperAddin
 
             try
             {
+                // Check if we need to exit compose mode (inline compose only)
+                if (_actionPane != null && _actionPane.IsComposeMode)
+                {
+                    // Only handle inline compose exit (popup compose handled by Inspector.Close)
+                    if (_actionPane.ComposeInspector == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("  In inline compose mode - checking if user clicked away");
+                        // Inline compose mode - check if user clicked away
+                        if (_currentExplorer.ActiveInlineResponse == null)
+                        {
+                            System.Diagnostics.Debug.WriteLine("  ActiveInlineResponse is null - exiting compose mode");
+                            _actionPane.Dispatcher.Invoke(() =>
+                            {
+                                _actionPane.OnComposeItemDeactivated();
+                            });
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("  ActiveInlineResponse still active - staying in compose mode");
+                            // Don't process selection - we're still in compose mode
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("  In popup compose mode - Inspector.Close will handle exit");
+                        // Don't process selection - we're in popup compose mode
+                        return;
+                    }
+                }
+
                 if (_actionPane == null)
                 {
                     System.Diagnostics.Debug.WriteLine("  _actionPane is null, returning");
@@ -222,12 +245,29 @@ namespace FastPMHelperAddin
                     if (selection is Outlook.MailItem mail)
                     {
                         System.Diagnostics.Debug.WriteLine($"  Email selected: {mail.Subject}");
+                        System.Diagnostics.Debug.WriteLine($"  Sent status: {mail.Sent}");
 
-                        // Marshal to WPF UI thread (COM -> WPF threading)
-                        _actionPane.Dispatcher.Invoke(() =>
+                        // NEW: Check if this is an unsent email (draft/compose mode)
+                        if (!mail.Sent)
                         {
-                            _actionPane.OnEmailSelected(mail);
-                        });
+                            System.Diagnostics.Debug.WriteLine("  Detected UNSENT email (inline compose) - entering compose mode");
+
+                            _actionPane.Dispatcher.Invoke(() =>
+                            {
+                                // Enter compose mode for inline editing (no Inspector window)
+                                _actionPane.OnComposeItemActivated(mail, null);
+                            });
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("  Regular sent/received email - normal mode");
+
+                            // Marshal to WPF UI thread (COM -> WPF threading)
+                            _actionPane.Dispatcher.Invoke(() =>
+                            {
+                                _actionPane.OnEmailSelected(mail);
+                            });
+                        }
                     }
                     else
                     {
@@ -251,22 +291,121 @@ namespace FastPMHelperAddin
             }
         }
 
+        private void Explorer_InlineResponse(object item)
+        {
+            System.Diagnostics.Debug.WriteLine($"=== Explorer_InlineResponse EVENT FIRED === (Time: {DateTime.Now:HH:mm:ss.fff})");
+
+            try
+            {
+                if (item is Outlook.MailItem draft)
+                {
+                    System.Diagnostics.Debug.WriteLine($"  Inline compose started for: {draft.Subject}");
+
+                    // Race condition check: If already in compose mode with different draft
+                    if (_actionPane.IsComposeMode && _actionPane.ComposeMail != null)
+                    {
+                        if (draft.EntryID != _actionPane.ComposeMail.EntryID)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"  Different draft detected - exiting old compose mode first");
+                            // Different draft - exit old, enter new
+                            _actionPane.Dispatcher.Invoke(() =>
+                            {
+                                _actionPane.OnComposeItemDeactivated();
+                            });
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"  Same draft - already in compose mode, ignoring");
+                            // Same draft - already in compose mode, ignore
+                            return;
+                        }
+                    }
+
+                    // Inline compose started in reading pane
+                    System.Diagnostics.Debug.WriteLine($"  Entering compose mode (inline)");
+                    _actionPane.Dispatcher.Invoke(() =>
+                    {
+                        _actionPane.OnComposeItemActivated(draft, null);
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in InlineResponse: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        private void Inspectors_NewInspector(Outlook.Inspector inspector)
+        {
+            System.Diagnostics.Debug.WriteLine("=== Inspectors_NewInspector EVENT FIRED ===");
+
+            try
+            {
+                if (_actionPane == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("  _actionPane is null, returning");
+                    return;
+                }
+
+                // Check if this is a compose window (unsent MailItem)
+                if (inspector.CurrentItem is Outlook.MailItem mail)
+                {
+                    System.Diagnostics.Debug.WriteLine($"  Inspector contains MailItem: {mail.Subject ?? "(No Subject)"}");
+                    System.Diagnostics.Debug.WriteLine($"  Sent status: {mail.Sent}");
+
+                    // Only notify for unsent emails (compose mode)
+                    if (!mail.Sent)
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Detected compose window - notifying action pane");
+
+                        // Marshal to WPF UI thread
+                        _actionPane.Dispatcher.Invoke(() =>
+                        {
+                            _actionPane.OnComposeItemActivated(mail, inspector);
+                        });
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Email already sent - not a compose window");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"  Inspector does not contain MailItem (type: {inspector.CurrentItem?.GetType().Name ?? "null"})");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Inspectors_NewInspector: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
         private void ThisAddIn_Shutdown(object sender, EventArgs e)
         {
             try
             {
-                // Unhook events
+                // Unhook Sent Items event handlers
                 foreach (var items in _monitoredInboxes)
                 {
                     if (items != null)
-                        items.ItemAdd -= InboxItems_ItemAdd;
+                        items.ItemAdd -= SentItems_ItemAdd;
                 }
 
-                // NEW: Unhook explorer event
+                // NEW: Unhook explorer events
                 if (_currentExplorer != null)
                 {
                     _currentExplorer.SelectionChange -= Explorer_SelectionChange;
-                    System.Diagnostics.Debug.WriteLine("Explorer SelectionChange event unhooked");
+                    _currentExplorer.InlineResponse -= Explorer_InlineResponse;
+                    System.Diagnostics.Debug.WriteLine("Explorer events unhooked (SelectionChange, InlineResponse)");
+                }
+
+                // NEW: Unhook inspectors event
+                if (_inspectors != null)
+                {
+                    _inspectors.NewInspector -= Inspectors_NewInspector;
+                    System.Diagnostics.Debug.WriteLine("Inspectors.NewInspector event unhooked");
                 }
 
                 System.Diagnostics.Debug.WriteLine("MailPipeline add-in shut down successfully");
@@ -277,27 +416,8 @@ namespace FastPMHelperAddin
             }
         }
 
-        private void InboxItems_ItemAdd(object item)
-        {
-            if (item is Outlook.MailItem mail)
-            {
-                try
-                {
-                    // Only track if received in the tracked account
-                    if (IsToTrackedAccount(mail))
-                    {
-                        _exporter.ExportMail(mail, "Inbox");
-                        System.Diagnostics.Debug.WriteLine($"Exported inbox mail: {mail.Subject}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Error exporting inbox mail: {ex.Message}");
-                }
-            }
-        }
 
-        private void SentItems_ItemAdd(object item)
+        private async void SentItems_ItemAdd(object item)
         {
             System.Diagnostics.Debug.WriteLine("=== SentItems_ItemAdd EVENT FIRED ===");
 
@@ -305,22 +425,23 @@ namespace FastPMHelperAddin
             {
                 try
                 {
-                    System.Diagnostics.Debug.WriteLine($"Item is MailItem with subject: {mail.Subject}");
+                    System.Diagnostics.Debug.WriteLine($"Processing sent mail: {mail.Subject}");
 
-                    // Only track if sent from the tracked account
-                    if (IsFromTrackedAccount(mail))
+                    // Check for deferred action execution
+                    var deferredData = LoadDeferredData(mail);
+                    if (deferredData != null)
                     {
-                        _exporter.ExportMail(mail, "Sent");
-                        System.Diagnostics.Debug.WriteLine($"Exported sent mail: {mail.Subject}");
+                        System.Diagnostics.Debug.WriteLine($"Found deferred action: {deferredData.Mode}");
+                        await ExecuteDeferredActionAsync(mail, deferredData);
                     }
                     else
                     {
-                        System.Diagnostics.Debug.WriteLine($"Mail NOT from tracked account - skipping export");
+                        System.Diagnostics.Debug.WriteLine("No deferred action scheduled for this email");
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Error exporting sent mail: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"Error in SentItems_ItemAdd: {ex.Message}");
                     System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 }
             }
@@ -330,120 +451,6 @@ namespace FastPMHelperAddin
             }
         }
 
-        private bool IsFromTrackedAccount(Outlook.MailItem mail)
-        {
-            try
-            {
-                System.Diagnostics.Debug.WriteLine($"Checking if mail is from tracked account: {mail.Subject}");
-
-                // Method 1: Check StoreId to identify which account sent the email
-                var folder = mail.Parent as Outlook.MAPIFolder;
-                if (folder != null && !string.IsNullOrEmpty(folder.StoreID))
-                {
-                    System.Diagnostics.Debug.WriteLine($"  Mail StoreId: {folder.StoreID}");
-
-                    // Check if this email is in the dyno account store
-                    if (folder.StoreID.IndexOf(DynoAccountStoreIdHex, StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        System.Diagnostics.Debug.WriteLine("  Found in dyno account store - tracking!");
-                        return true;
-                    }
-
-                    // Explicitly reject personal account emails
-                    if (folder.StoreID.IndexOf(PersonalAccountStoreIdHex, StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        System.Diagnostics.Debug.WriteLine("  Found in personal account store - NOT tracking");
-                        return false;
-                    }
-                }
-
-                // Method 2: Fallback to sender address checking if StoreId method fails
-                System.Diagnostics.Debug.WriteLine($"  StoreId check inconclusive, checking sender address...");
-                string senderAddress = GetSenderEmailAddress(mail);
-                System.Diagnostics.Debug.WriteLine($"  Sender address: {senderAddress}");
-
-                bool matches = senderAddress.Equals(TrackedEmailAccount, StringComparison.OrdinalIgnoreCase);
-                System.Diagnostics.Debug.WriteLine($"  Match result: {matches}");
-
-                return matches;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error checking sender account: {ex.Message}");
-                return false;
-            }
-        }
-
-        private bool IsToTrackedAccount(Outlook.MailItem mail)
-        {
-            try
-            {
-                System.Diagnostics.Debug.WriteLine($"Checking if mail is to tracked account: {mail.Subject}");
-
-                // Method 1: Check StoreId to identify which account received the email
-                var folder = mail.Parent as Outlook.MAPIFolder;
-                if (folder != null && !string.IsNullOrEmpty(folder.StoreID))
-                {
-                    System.Diagnostics.Debug.WriteLine($"  Mail StoreId: {folder.StoreID}");
-                    
-                    // Check if this email is in the dyno account store
-                    if (folder.StoreID.IndexOf(DynoAccountStoreIdHex, StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        System.Diagnostics.Debug.WriteLine("  Found in dyno account store - tracking!");
-                        return true;
-                    }
-                    
-                    // Explicitly reject personal account emails
-                    if (folder.StoreID.IndexOf(PersonalAccountStoreIdHex, StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        System.Diagnostics.Debug.WriteLine("  Found in personal account store - NOT tracking");
-                        return false;
-                    }
-                }
-
-                // Method 2: Fallback to recipient checking if StoreId method fails
-                System.Diagnostics.Debug.WriteLine($"  StoreId check inconclusive, checking recipients...");
-                System.Diagnostics.Debug.WriteLine($"  To: {mail.To}");
-                System.Diagnostics.Debug.WriteLine($"  CC: {mail.CC}");
-
-                // Check To field
-                if (!string.IsNullOrEmpty(mail.To) &&
-                    mail.To.IndexOf(TrackedEmailAccount, StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    System.Diagnostics.Debug.WriteLine("  Found in To field!");
-                    return true;
-                }
-
-                // Check CC field
-                if (!string.IsNullOrEmpty(mail.CC) &&
-                    mail.CC.IndexOf(TrackedEmailAccount, StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    System.Diagnostics.Debug.WriteLine("  Found in CC field!");
-                    return true;
-                }
-
-                // Method 3: Check each recipient object
-                foreach (Outlook.Recipient recipient in mail.Recipients)
-                {
-                    string recipientAddress = GetRecipientEmailAddress(recipient);
-                    System.Diagnostics.Debug.WriteLine($"  Checking recipient: {recipientAddress}");
-
-                    if (recipientAddress.Equals(TrackedEmailAccount, StringComparison.OrdinalIgnoreCase))
-                    {
-                        System.Diagnostics.Debug.WriteLine("  Match found in recipients!");
-                        return true;
-                    }
-                }
-
-                System.Diagnostics.Debug.WriteLine("  No match found - not tracking this email");
-                return false;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error checking recipient account: {ex.Message}");
-                return false;
-            }
-        }
 
         public string GetSenderEmailAddress(Outlook.MailItem mail)
         {
@@ -496,6 +503,163 @@ namespace FastPMHelperAddin
                 return recipient.Address;
             }
         }
+
+        #region Deferred Action Execution
+
+        /// <summary>
+        /// Loads deferred action data from the mail item's UserProperties
+        /// </summary>
+        private DeferredActionData LoadDeferredData(Outlook.MailItem mail)
+        {
+            try
+            {
+                var props = mail.UserProperties;
+
+                // Log all user properties for debugging
+                System.Diagnostics.Debug.WriteLine($"=== Checking for deferred data in mail: {mail.Subject} ===");
+                System.Diagnostics.Debug.WriteLine($"Total UserProperties count: {props.Count}");
+                foreach (Outlook.UserProperty p in props)
+                {
+                    System.Diagnostics.Debug.WriteLine($"  Property: {p.Name} = {p.Value}");
+                }
+
+                var prop = props.Find(DEFERRED_PROPERTY_NAME);
+
+                if (prop == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"No deferred property '{DEFERRED_PROPERTY_NAME}' found");
+                    return null;
+                }
+
+                if (string.IsNullOrEmpty(prop.Value?.ToString()))
+                {
+                    System.Diagnostics.Debug.WriteLine($"Deferred property '{DEFERRED_PROPERTY_NAME}' exists but is empty");
+                    return null;
+                }
+
+                var json = prop.Value.ToString();
+                System.Diagnostics.Debug.WriteLine($"✓ Found deferred property: {json}");
+
+                var data = JsonSerializer.Deserialize<DeferredActionData>(json);
+                System.Diagnostics.Debug.WriteLine($"✓ Deserialized: Mode={data.Mode}, ActionID={data.ActionID}");
+
+                return data;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR loading deferred data: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Clears deferred action data from the mail item's UserProperties
+        /// </summary>
+        private void ClearDeferredData(Outlook.MailItem mail)
+        {
+            try
+            {
+                var props = mail.UserProperties;
+                var prop = props.Find(DEFERRED_PROPERTY_NAME);
+
+                if (prop != null)
+                {
+                    prop.Delete();
+                    mail.Save();
+                    System.Diagnostics.Debug.WriteLine("Cleared deferred data from sent item");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error clearing deferred data: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Executes a deferred action based on the deferred data
+        /// </summary>
+        private async Task ExecuteDeferredActionAsync(Outlook.MailItem mail, DeferredActionData data)
+        {
+            System.Diagnostics.Debug.WriteLine($"=== ExecuteDeferredActionAsync START ===");
+            System.Diagnostics.Debug.WriteLine($"Mode: {data.Mode}, ActionID: {data.ActionID}");
+            System.Diagnostics.Debug.WriteLine($"Mail subject: {mail.Subject}");
+
+            try
+            {
+                if (_actionPane == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("ERROR: ActionPane is null, cannot execute deferred action");
+                    return;
+                }
+
+                // Execute based on mode
+                if (data.Mode == "Create")
+                {
+                    System.Diagnostics.Debug.WriteLine("→ Dispatching ExecuteDeferredCreateAsync to UI thread");
+                    await _actionPane.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await _actionPane.ExecuteDeferredCreateAsync(mail);
+                    });
+                    System.Diagnostics.Debug.WriteLine("✓ ExecuteDeferredCreateAsync completed");
+                }
+                else if (data.Mode == "CreateMultiple")
+                {
+                    System.Diagnostics.Debug.WriteLine("→ Dispatching ExecuteDeferredCreateMultipleAsync to UI thread");
+                    await _actionPane.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await _actionPane.ExecuteDeferredCreateMultipleAsync(mail);
+                    });
+                    System.Diagnostics.Debug.WriteLine("✓ ExecuteDeferredCreateMultipleAsync completed");
+                }
+                else if (data.Mode == "Update" && data.ActionID.HasValue)
+                {
+                    System.Diagnostics.Debug.WriteLine($"→ Dispatching ExecuteDeferredUpdateAsync for action {data.ActionID.Value}");
+                    await _actionPane.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await _actionPane.ExecuteDeferredUpdateAsync(mail, data.ActionID.Value);
+                    });
+                    System.Diagnostics.Debug.WriteLine($"✓ ExecuteDeferredUpdateAsync completed for action {data.ActionID.Value}");
+                }
+                else if (data.Mode == "Close" && data.ActionID.HasValue)
+                {
+                    System.Diagnostics.Debug.WriteLine($"→ Dispatching ExecuteDeferredCloseAsync for action {data.ActionID.Value}");
+                    await _actionPane.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await _actionPane.ExecuteDeferredCloseAsync(mail, data.ActionID.Value);
+                    });
+                    System.Diagnostics.Debug.WriteLine($"✓ ExecuteDeferredCloseAsync completed for action {data.ActionID.Value}");
+                }
+                else if (data.Mode == "Reopen" && data.ActionID.HasValue)
+                {
+                    System.Diagnostics.Debug.WriteLine($"→ Dispatching ExecuteDeferredReopenAsync for action {data.ActionID.Value}");
+                    await _actionPane.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await _actionPane.ExecuteDeferredReopenAsync(mail, data.ActionID.Value);
+                    });
+                    System.Diagnostics.Debug.WriteLine($"✓ ExecuteDeferredReopenAsync completed for action {data.ActionID.Value}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"WARNING: Unknown mode '{data.Mode}' or missing ActionID");
+                }
+
+                // Cleanup: Remove the deferred property
+                System.Diagnostics.Debug.WriteLine("→ Clearing deferred data property");
+                ClearDeferredData(mail);
+                System.Diagnostics.Debug.WriteLine("✓ Deferred data cleared");
+
+                System.Diagnostics.Debug.WriteLine($"=== ExecuteDeferredActionAsync END ===");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR executing deferred action: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                // Note: We don't clear the deferred data on error, so user can retry manually
+            }
+        }
+
+        #endregion
 
         #region VSTO generated code
 

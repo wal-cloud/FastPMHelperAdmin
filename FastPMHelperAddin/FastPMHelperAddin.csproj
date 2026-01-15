@@ -304,10 +304,13 @@
   <ItemGroup>
     <Compile Include="MailExporter.cs" />
     <Compile Include="Models\ActionItem.cs" />
+    <Compile Include="Models\ActionDropdownItem.cs" />
     <Compile Include="Models\ClassificationRule.cs" />
+    <Compile Include="Models\DeferredActionData.cs" />
     <Compile Include="Models\RelatedEmailItem.cs" />
     <Compile Include="Services\LLMService.cs" />
     <Compile Include="Services\ActionMatchingService.cs" />
+    <Compile Include="Services\ActionGroupingService.cs" />
     <Compile Include="Services\AutoClassifierService.cs" />
     <Compile Include="Services\DirectEmailRetrievalService.cs" />
     <Compile Include="Services\GraphAuthService.cs" />
@@ -318,6 +321,7 @@
     <Compile Include="UI\ProjectActionPane.xaml.cs">
       <DependentUpon>ProjectActionPane.xaml</DependentUpon>
     </Compile>
+    <Compile Include="UI\ActionDropdownTemplateSelector.cs" />
     <Compile Include="UI\CreateActionDialog.xaml.cs">
       <DependentUpon>CreateActionDialog.xaml</DependentUpon>
     </Compile>

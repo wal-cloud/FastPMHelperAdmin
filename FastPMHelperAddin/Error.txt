@@ -1,36 +1,14 @@
-﻿Gemini API Response: {
-  "candidates": [
-    {
-      "content": {
-        "parts": [
-          {
-            "text": "```json\n{\n  \"title\": \"Review DMW Hydrotest/P&P/PWHT sequence\",\n  \"ballHolder\": \"Yanko Serifi\",\n  \"description\": \"Yanko needs to review the DMW Hydrotest/P&P/PWHT sequence with UGL. The current sequence is not clear and requires confirmation from UGL.\"\n}\n```"
-          }
-        ],
-        "role": "model"
-      },
-      "finishReason": "STOP",
-      "index": 0
-    }
-  ],
-  "usageMetadata": {
-    "promptTokenCount": 1454,
-    "candidatesTokenCount": 81,
-    "totalTokenCount": 3105,
-    "promptTokensDetails": [
-      {
-        "modality": "TEXT",
-        "tokenCount": 1454
-      }
-    ],
-    "thoughtsTokenCount": 1570
-  },
-  "modelVersion": "gemini-2.5-flash",
-  "responseId": "GoFlab2wCMrRjuMPgaaPoAw"
-}
-
-Extracted LLM text: ```json
-
-
-
-
+﻿Email selection updated: 86114 v29 - LIST - AREA 240 ALARM AND TRIP SCHEDULE
+=== Explorer_InlineResponse EVENT FIRED === (Time: 21:18:58.992)
+  Inline compose started for: RE: 86114 v29 - LIST - AREA 240 ALARM AND TRIP SCHEDULE
+  Entering compose mode (inline)
+OnComposeItemActivated: RE: 86114 v29 - LIST - AREA 240 ALARM AND TRIP SCHEDULE
+  Inspector: Inline editing
+'outlook.exe' (CLR v4.0.30319: FastPMHelperAddin.vsto|vstolocal): Loaded 'C:\Users\wally\AppData\Local\assembly\dl3\3Y625D6P.5NV\KLE3EOK9.6A6\12df79db\0084e651_7b44dc01\System.Text.Json.dll'. Skipped loading symbols. Module is optimized and the debugger option 'Just My Code' is enabled.
+  Inline compose - no Inspector to hook (will exit via Explorer_SelectionChange)
+UpdateButtonVisualsForSchedule: _isComposeMode=True, DeferredMode=None
+  Compose mode - enabling all buttons
+System.Windows.ResourceDictionary Warning: 9 : Resource not found; ResourceKey='SecondaryAccent'
+The thread 0xbb24 has exited with code 0 (0x0).
+The thread 0xa4ac has exited with code 0 (0x0).
+The thread 0x91c0 has exited with code 0 (0x0).

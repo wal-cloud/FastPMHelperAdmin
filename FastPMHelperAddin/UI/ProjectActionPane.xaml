@@ -1,6 +1,7 @@
 <UserControl x:Class="FastPMHelperAddin.UI.ProjectActionPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:FastPMHelperAddin.UI"
              Background="#F3F3F3"
              Width="320">
 
@@ -146,10 +147,45 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Action Dropdown Template Selector -->
+        <local:ActionDropdownTemplateSelector x:Key="ActionTemplateSelector">
+            <!-- Header Template - Bold, not selectable -->
+            <local:ActionDropdownTemplateSelector.HeaderTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding DisplayText}"
+                               FontWeight="SemiBold"
+                               FontSize="11"
+                               Foreground="{StaticResource TextSecondary}"
+                               Padding="4,6,4,2"
+                               IsHitTestVisible="False"/>
+                </DataTemplate>
+            </local:ActionDropdownTemplateSelector.HeaderTemplate>
+
+            <!-- Action Template - Normal action item -->
+            <local:ActionDropdownTemplateSelector.ActionTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding DisplayText}"
+                               Padding="12,4,4,4"/>
+                </DataTemplate>
+            </local:ActionDropdownTemplateSelector.ActionTemplate>
+
+            <!-- More Expander Template - Clickable expander -->
+            <local:ActionDropdownTemplateSelector.MoreExpanderTemplate>
+                <DataTemplate>
+                    <TextBlock Text="More..."
+                               FontStyle="Italic"
+                               Foreground="{StaticResource PrimaryAccent}"
+                               Padding="4,6"
+                               Cursor="Hand"/>
+                </DataTemplate>
+            </local:ActionDropdownTemplateSelector.MoreExpanderTemplate>
+        </local:ActionDropdownTemplateSelector>
     </UserControl.Resources>
 
     <Grid Margin="12">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -203,7 +239,17 @@
         </Border>
 
         <!-- Action Buttons + Status -->
-        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+        <StackPanel Grid.Row="3" Margin="0,0,0,12">
+            <!-- Compose Mode Header (only visible in compose mode) -->
+            <TextBlock x:Name="ComposeModeHeader"
+                       Text="Schedule action on send:"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       FontFamily="Segoe UI"
+                       Foreground="{StaticResource PrimaryAccent}"
+                       Margin="0,0,0,8"
+                       Visibility="Collapsed"/>
+
             <!-- Action Buttons in 2x3 Grid -->
             <UniformGrid Rows="2" Columns="3" Margin="0,0,0,12">
                 <Button x:Name="CreateButton" Content="Create New"
@@ -211,7 +257,7 @@
                         Click="CreateButton_Click"
                         Margin="0,0,4,4"/>
                 <Button x:Name="CreateMultipleButton" Content="Create Multiple"
-                        Style="{StaticResource ModernButtonSecondary}"
+                        Style="{StaticResource ModernButtonPrimary}"
                         Click="CreateMultipleButton_Click"
                         Margin="0,0,4,4"
                         ToolTip="Extract and create multiple actions from this email"/>
@@ -221,12 +267,12 @@
                         Margin="4,0,0,4"
                         IsEnabled="False"/>
                 <Button x:Name="CloseButton" Content="Close"
-                        Style="{StaticResource ModernButtonSecondary}"
+                        Style="{StaticResource ModernButtonPrimary}"
                         Click="CloseButton_Click"
                         Margin="0,4,4,0"
                         IsEnabled="False"/>
                 <Button x:Name="ReopenButton" Content="Reopen"
-                        Style="{StaticResource ModernButtonSecondary}"
+                        Style="{StaticResource ModernButtonPrimary}"
                         Click="ReopenButton_Click"
                         Margin="4,4,0,0"
                         IsEnabled="False"/>
@@ -245,50 +291,13 @@
             </Border>
         </StackPanel>
 
-        <!-- Linked Action Card -->
-        <Border x:Name="LinkedActionBorder"
-                Grid.Row="3"
-                Margin="0,0,0,12">
-            <Border.Style>
-                <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding ElementName=ActionComboBox, Path=SelectedItem}" Value="{x:Null}">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-
+        <!-- Action Selection Card - Always visible when email selected -->
+        <Border x:Name="ActionSelectionCard"
+                Grid.Row="4"
+                Margin="0,0,0,12"
+                Style="{StaticResource CardStyle}">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <!-- Section Header -->
-                    <Grid Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0"
-                                   Text="Linked Action"
-                                   FontWeight="SemiBold"
-                                   FontSize="16"
-                                   FontFamily="Segoe UI"
-                                   Foreground="{StaticResource TextPrimary}"
-                                   VerticalAlignment="Center"/>
-
-                        <Button x:Name="SaveLinkedActionButton"
-                                Grid.Column="1"
-                                Content="✓"
-                                FontSize="16"
-                                FontWeight="Bold"
-                                Width="32"
-                                Height="32"
-                                Padding="0"
-                                Style="{StaticResource ModernButtonPrimary}"
-                                Click="SaveLinkedActionButton_Click"
-                                ToolTip="Save changes (or press Enter in any field)"/>
-                    </Grid>
-
                     <!-- Action ComboBox -->
                     <TextBlock Text="Select Action"
                                FontWeight="SemiBold"
@@ -297,13 +306,71 @@
                                Foreground="{StaticResource TextSecondary}"
                                Margin="0,0,0,4"/>
                     <ComboBox x:Name="ActionComboBox"
-                              DisplayMemberPath="Title"
+                              ItemTemplateSelector="{StaticResource ActionTemplateSelector}"
                               Style="{StaticResource ModernComboBox}"
                               SelectionChanged="ActionComboBox_SelectionChanged"
-                              Margin="0,0,0,16"/>
+                              PreviewMouseDown="ActionComboBox_PreviewMouseDown"
+                              Margin="0,0,0,16">
+                        <ComboBox.ItemContainerStyle>
+                            <Style TargetType="ComboBoxItem">
+                                <!-- Disable selection for headers and expander -->
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ItemType}" Value="Header">
+                                        <Setter Property="IsEnabled" Value="False"/>
+                                        <Setter Property="Focusable" Value="False"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ItemType}" Value="MoreExpander">
+                                        <Setter Property="IsEnabled" Value="True"/>
+                                        <Setter Property="Focusable" Value="False"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ComboBox.ItemContainerStyle>
+                    </ComboBox>
 
-                    <!-- Editable Fields -->
-                    <Grid>
+                    <!-- Linked Action Details - Only visible when action selected -->
+                    <Border x:Name="LinkedActionBorder">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ElementName=ActionComboBox, Path=SelectedItem.ItemType}" Value="Action">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <!-- Section Header -->
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0"
+                                           Text="Linked Action"
+                                           FontWeight="SemiBold"
+                                           FontSize="16"
+                                           FontFamily="Segoe UI"
+                                           Foreground="{StaticResource TextPrimary}"
+                                           VerticalAlignment="Center"/>
+
+                                <Button x:Name="SaveLinkedActionButton"
+                                        Grid.Column="1"
+                                        Content="✓"
+                                        FontSize="16"
+                                        FontWeight="Bold"
+                                        Width="32"
+                                        Height="32"
+                                        Padding="0"
+                                        Style="{StaticResource ModernButtonPrimary}"
+                                        Click="SaveLinkedActionButton_Click"
+                                        ToolTip="Save changes (or press Enter in any field)"/>
+                            </Grid>
+
+                            <!-- Editable Fields -->
+                            <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
@@ -466,13 +533,15 @@
                                 Style="{StaticResource ModernButtonSecondary}"
                                 Click="OpenAllMessagesButton_Click"
                                 ToolTip="Open all related messages"/>
-                    </Grid>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </Border>
 
         <!-- Bottom Settings -->
-        <StackPanel Grid.Row="4">
+        <StackPanel Grid.Row="5">
             <CheckBox x:Name="ConfirmActionsCheckBox"
                       Content="Confirm before creating/updating"
                       IsChecked="False"

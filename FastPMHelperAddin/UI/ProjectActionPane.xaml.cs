@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -19,9 +20,14 @@ namespace FastPMHelperAddin.UI
         private ActionMatchingService _matchingService;
         private AutoClassifierService _classifierService;
         private DirectEmailRetrievalService _emailRetrievalService;
+        private ActionGroupingService _groupingService;
 
         private List<ActionItem> _openActions;
         private Outlook.MailItem _currentMail;
+        private List<ActionDropdownItem> _dropdownItems;
+        private bool _isExpanded = false;
+        private string _currentPackageContext;
+        private string _currentProjectContext;
 
         // Queue for processing actions
         private Queue<Func<Task>> _actionQueue = new Queue<Func<Task>>();
@@ -38,6 +44,19 @@ namespace FastPMHelperAddin.UI
         }
 
         private ActionFieldState _previousActionState;
+
+        // Compose mode fields for deferred action execution
+        private bool _isComposeMode = false;
+        private Outlook.MailItem _composeMail;
+        private Outlook.Inspector _composeInspector;
+        private DeferredActionData _currentDeferredData;
+        private const string DEFERRED_PROPERTY_NAME = "FastPMDeferredAction"; // No underscores - Outlook doesn't allow them
+        private static readonly SolidColorBrush ScheduledBrush = new SolidColorBrush(Color.FromRgb(76, 175, 80)); // Green #4CAF50
+
+        // Public properties to expose compose mode state (needed by ThisAddIn for race condition handling)
+        public bool IsComposeMode => _isComposeMode;
+        public Outlook.MailItem ComposeMail => _composeMail;
+        public Outlook.Inspector ComposeInspector => _composeInspector;
 
         public ProjectActionPane()
         {
@@ -72,6 +91,7 @@ namespace FastPMHelperAddin.UI
                 _matchingService = new ActionMatchingService();
                 _classifierService = new AutoClassifierService();
                 _emailRetrievalService = new DirectEmailRetrievalService();
+                _groupingService = new ActionGroupingService();
 
                 System.Diagnostics.Debug.WriteLine("Services initialized successfully with Google Sheets");
             }
@@ -126,16 +146,24 @@ namespace FastPMHelperAddin.UI
 
         // Called from ThisAddIn when email selection changes
         // NOTE: ThisAddIn already wraps this call in Dispatcher.Invoke, so we don't need to do it again
-        public void OnEmailSelected(Outlook.MailItem mail)
+        public async void OnEmailSelected(Outlook.MailItem mail)
         {
             System.Diagnostics.Debug.WriteLine($"OnEmailSelected called with: {mail?.Subject ?? "(null)"}");
 
+            // NEW: If compose mode is active, exit it first (user switched to regular email)
+            if (_isComposeMode)
+            {
+                System.Diagnostics.Debug.WriteLine("  Exiting compose mode - user selected regular email");
+                OnComposeItemDeactivated();
+            }
+
             _currentMail = mail;
+            _isExpanded = false;  // Reset expansion on email change
 
             if (mail == null)
             {
                 SelectedEmailSubject.Text = "No email selected";
-                ActionComboBox.SelectedItem = null;
+                ActionComboBox.ItemsSource = null;
                 ClearLinkedActionFields();
                 UpdateButtonStates();
                 return;
@@ -143,41 +171,335 @@ namespace FastPMHelperAddin.UI
 
             SelectedEmailSubject.Text = mail.Subject ?? "(No Subject)";
 
-            // Auto-match action
-            var matchedAction = _matchingService.FindMatchingAction(mail, _openActions);
-            ActionComboBox.SelectedItem = matchedAction;
+            // Extract email identifiers
+            string internetMessageId = GetInternetMessageId(mail);
+            string inReplyToId = GetInReplyToId(mail);
+            string conversationId = mail.ConversationID;
+
+            // Initial grouping (before async classification)
+            var initialGrouping = _groupingService.GroupActions(
+                _openActions,
+                internetMessageId,
+                inReplyToId,
+                conversationId,
+                null,  // No package context yet
+                null   // No project context yet
+            );
+
+            // Check if linked actions provide context
+            if (initialGrouping.LinkedActions.Count > 0)
+            {
+                _currentPackageContext = initialGrouping.DetectedPackage;
+                _currentProjectContext = initialGrouping.DetectedProject;
+                RefreshDropdown(initialGrouping);
+                AutoSelectBestAction(initialGrouping);
+            }
+            else
+            {
+                // Show initial dropdown without package/project context
+                _currentPackageContext = null;
+                _currentProjectContext = null;
+                RefreshDropdown(initialGrouping);
+
+                // Start async classification
+                await ClassifyEmailContextAsync(mail);
+            }
 
             UpdateButtonStates();
-
             System.Diagnostics.Debug.WriteLine($"Email selection updated: {mail.Subject}");
+        }
+
+        private string GetInternetMessageId(Outlook.MailItem mail)
+        {
+            if (mail == null) return string.Empty;
+
+            const string PR_INTERNET_MESSAGE_ID = "http://schemas.microsoft.com/mapi/proptag/0x1035001E";
+
+            try
+            {
+                var accessor = mail.PropertyAccessor;
+                object value = accessor.GetProperty(PR_INTERNET_MESSAGE_ID);
+                return value?.ToString() ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private string GetInReplyToId(Outlook.MailItem mail)
+        {
+            if (mail == null) return string.Empty;
+
+            const string PR_IN_REPLY_TO_ID = "http://schemas.microsoft.com/mapi/proptag/0x1042001E";
+
+            try
+            {
+                var accessor = mail.PropertyAccessor;
+                object value = accessor.GetProperty(PR_IN_REPLY_TO_ID);
+                return value?.ToString() ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private async Task ClassifyEmailContextAsync(Outlook.MailItem mail)
+        {
+            try
+            {
+                string subject = mail.Subject ?? "";
+                string body = mail.Body ?? "";
+                string sender = mail.SenderEmailAddress ?? "";
+                string to = mail.To ?? "";
+
+                // Run classification on background thread to avoid blocking UI
+                var classification = await Task.Run(() =>
+                    _classifierService.Classify(subject, body, sender, to));
+
+                _currentPackageContext = classification.SuggestedPackageID;
+                _currentProjectContext = classification.SuggestedProjectID;
+
+                // Re-group with context
+                string internetMessageId = GetInternetMessageId(mail);
+                string inReplyToId = GetInReplyToId(mail);
+                string conversationId = mail.ConversationID;
+
+                var grouping = _groupingService.GroupActions(
+                    _openActions,
+                    internetMessageId,
+                    inReplyToId,
+                    conversationId,
+                    _currentPackageContext,
+                    _currentProjectContext
+                );
+
+                Dispatcher.Invoke(() =>
+                {
+                    RefreshDropdown(grouping);
+                    AutoSelectBestAction(grouping);
+                    UpdateButtonStates();
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Classification error: {ex.Message}");
+            }
+        }
+
+        private void RefreshDropdown(ActionGroupingResult grouping)
+        {
+            _dropdownItems = BuildDropdownItems(grouping, _isExpanded);
+            ActionComboBox.ItemsSource = _dropdownItems;
+        }
+
+        private void AutoSelectBestAction(ActionGroupingResult grouping)
+        {
+            // Only auto-select if there are linked actions
+            // Otherwise leave unselected so user can manually choose
+            if (grouping.LinkedActions.Count > 0)
+            {
+                var bestMatch = grouping.LinkedActions[0];
+                var item = _dropdownItems.FirstOrDefault(d =>
+                    d.ItemType == ActionDropdownItemType.Action &&
+                    d.Action?.Id == bestMatch.Id);
+                ActionComboBox.SelectedItem = item;
+            }
+            else
+            {
+                // No linked actions - clear selection
+                ActionComboBox.SelectedItem = null;
+            }
+        }
+
+        private List<ActionDropdownItem> BuildDropdownItems(ActionGroupingResult grouping, bool expanded)
+        {
+            var items = new List<ActionDropdownItem>();
+
+            // Section 1: Linked Actions or "No linked actions" message
+            if (grouping.LinkedActions.Count > 0)
+            {
+                items.Add(new ActionDropdownItem
+                {
+                    ItemType = ActionDropdownItemType.Header,
+                    HeaderText = "LINKED ACTIONS"
+                });
+
+                foreach (var action in grouping.LinkedActions)
+                {
+                    items.Add(new ActionDropdownItem
+                    {
+                        ItemType = ActionDropdownItemType.Action,
+                        Action = action,
+                        Category = "Linked"
+                    });
+                }
+            }
+            else
+            {
+                // Show "No linked actions" message
+                items.Add(new ActionDropdownItem
+                {
+                    ItemType = ActionDropdownItemType.Header,
+                    HeaderText = "No linked actions - select one to update"
+                });
+            }
+
+            // Section 2: Package Actions
+            if (grouping.PackageActions.Count > 0)
+            {
+                string packageHeader = string.IsNullOrEmpty(grouping.DetectedPackage)
+                    ? "PACKAGE ACTIONS"
+                    : $"PACKAGE: {grouping.DetectedPackage}";
+
+                items.Add(new ActionDropdownItem
+                {
+                    ItemType = ActionDropdownItemType.Header,
+                    HeaderText = packageHeader
+                });
+
+                foreach (var action in grouping.PackageActions)
+                {
+                    items.Add(new ActionDropdownItem
+                    {
+                        ItemType = ActionDropdownItemType.Action,
+                        Action = action,
+                        Category = "Package"
+                    });
+                }
+            }
+
+            // More... expander (if there are project/other actions)
+            bool hasMoreActions = grouping.ProjectActions.Count > 0 || grouping.OtherActions.Count > 0;
+
+            if (hasMoreActions)
+            {
+                if (!expanded)
+                {
+                    items.Add(new ActionDropdownItem
+                    {
+                        ItemType = ActionDropdownItemType.MoreExpander
+                    });
+                }
+                else
+                {
+                    // Expanded: Show Project and Other sections
+                    if (grouping.ProjectActions.Count > 0)
+                    {
+                        string projectHeader = string.IsNullOrEmpty(grouping.DetectedProject)
+                            ? "PROJECT ACTIONS"
+                            : $"PROJECT: {grouping.DetectedProject}";
+
+                        items.Add(new ActionDropdownItem
+                        {
+                            ItemType = ActionDropdownItemType.Header,
+                            HeaderText = projectHeader
+                        });
+
+                        foreach (var action in grouping.ProjectActions)
+                        {
+                            items.Add(new ActionDropdownItem
+                            {
+                                ItemType = ActionDropdownItemType.Action,
+                                Action = action,
+                                Category = "Project"
+                            });
+                        }
+                    }
+
+                    if (grouping.OtherActions.Count > 0)
+                    {
+                        items.Add(new ActionDropdownItem
+                        {
+                            ItemType = ActionDropdownItemType.Header,
+                            HeaderText = "OTHER"
+                        });
+
+                        foreach (var action in grouping.OtherActions)
+                        {
+                            items.Add(new ActionDropdownItem
+                            {
+                                ItemType = ActionDropdownItemType.Action,
+                                Action = action,
+                                Category = "Other"
+                            });
+                        }
+                    }
+                }
+            }
+
+            return items;
+        }
+
+        private void ActionComboBox_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            // Check if clicking on "More..." expander
+            var hitTest = e.OriginalSource as FrameworkElement;
+            if (hitTest?.DataContext is ActionDropdownItem item &&
+                item.ItemType == ActionDropdownItemType.MoreExpander)
+            {
+                e.Handled = true;  // Prevent selection
+
+                _isExpanded = true;
+
+                // Re-group and refresh
+                string internetMessageId = GetInternetMessageId(_currentMail);
+                string inReplyToId = GetInReplyToId(_currentMail);
+                string conversationId = _currentMail?.ConversationID;
+
+                var grouping = _groupingService.GroupActions(
+                    _openActions,
+                    internetMessageId,
+                    inReplyToId,
+                    conversationId,
+                    _currentPackageContext,
+                    _currentProjectContext
+                );
+
+                RefreshDropdown(grouping);
+
+                // Keep dropdown open
+                ActionComboBox.IsDropDownOpen = true;
+            }
         }
 
         private void ActionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            var selectedAction = ActionComboBox.SelectedItem as ActionItem;
+            var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
 
-            if (selectedAction == null)
+            // Ignore non-action selections
+            if (selectedItem == null || selectedItem.ItemType != ActionDropdownItemType.Action)
             {
-                ClearLinkedActionFields();
-                LinkedActionBorder.Background = new SolidColorBrush(Color.FromRgb(240, 240, 240)); // Grey
-                RelatedMessagesListView.ItemsSource = null;
-            }
-            else
-            {
-                PopulateLinkedActionFields(selectedAction);
-                LinkedActionBorder.Background = new SolidColorBrush(Color.FromRgb(255, 255, 204)); // Pastel yellow
-                LoadRelatedMessagesAsync(selectedAction);
-
-                // Store previous values for change detection
-                _previousActionState = new ActionFieldState
+                if (selectedItem?.ItemType == ActionDropdownItemType.Header ||
+                    selectedItem?.ItemType == ActionDropdownItemType.MoreExpander)
                 {
-                    Project = selectedAction.Project,
-                    Package = selectedAction.Package,
-                    Title = selectedAction.Title,
-                    BallHolder = selectedAction.BallHolder,
-                    DueDate = selectedAction.DueDate
-                };
+                    // Revert to previous selection
+                    e.Handled = true;
+                    return;
+                }
+
+                // No action selected - clear fields (visibility controlled by XAML)
+                ClearLinkedActionFields();
+                RelatedMessagesListView.ItemsSource = null;
+                UpdateButtonStates();
+                return;
             }
+
+            // Action selected - populate fields (visibility controlled by XAML)
+            var selectedAction = selectedItem.Action;
+            PopulateLinkedActionFields(selectedAction);
+            LoadRelatedMessagesAsync(selectedAction);
+
+            // Store previous values for change detection
+            _previousActionState = new ActionFieldState
+            {
+                Project = selectedAction.Project,
+                Package = selectedAction.Package,
+                Title = selectedAction.Title,
+                BallHolder = selectedAction.BallHolder,
+                DueDate = selectedAction.DueDate
+            };
 
             UpdateButtonStates();
         }
@@ -238,13 +560,14 @@ namespace FastPMHelperAddin.UI
                 // Update UI
                 Dispatcher.Invoke(() =>
                 {
-                    RefreshActionComboBox();
-
-                    // Re-match current email if one is selected
+                    // Re-process current email if one is selected (will trigger grouping)
                     if (_currentMail != null)
                     {
-                        var matchedAction = _matchingService.FindMatchingAction(_currentMail, _openActions);
-                        ActionComboBox.SelectedItem = matchedAction;
+                        OnEmailSelected(_currentMail);
+                    }
+                    else
+                    {
+                        ActionComboBox.ItemsSource = null;
                     }
                 });
 
@@ -274,7 +597,8 @@ namespace FastPMHelperAddin.UI
 
         private async Task SaveLinkedActionFieldsAsync()
         {
-            var selectedAction = ActionComboBox.SelectedItem as ActionItem;
+            var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+            var selectedAction = selectedItem?.Action;
             if (selectedAction == null)
             {
                 MessageBox.Show("No action selected.", "Save Error",
@@ -322,9 +646,28 @@ namespace FastPMHelperAddin.UI
                 selectedAction.BallHolder = ballHolder;
                 selectedAction.DueDate = dueDate;
 
-                // Refresh ComboBox display
-                RefreshActionComboBox();
-                ActionComboBox.SelectedItem = selectedAction;
+                // Refresh ComboBox display - rebuild with grouping
+                if (_currentMail != null)
+                {
+                    string internetMessageId = GetInternetMessageId(_currentMail);
+                    string inReplyToId = GetInReplyToId(_currentMail);
+                    string conversationId = _currentMail.ConversationID;
+                    var grouping = _groupingService.GroupActions(
+                        _openActions,
+                        internetMessageId,
+                        inReplyToId,
+                        conversationId,
+                        _currentPackageContext,
+                        _currentProjectContext
+                    );
+                    RefreshDropdown(grouping);
+
+                    // Re-select the updated action
+                    var item = _dropdownItems.FirstOrDefault(d =>
+                        d.ItemType == ActionDropdownItemType.Action &&
+                        d.Action?.Id == selectedAction.Id);
+                    ActionComboBox.SelectedItem = item;
+                }
 
                 SetStatus("Linked action saved successfully");
             }
@@ -390,49 +733,149 @@ namespace FastPMHelperAddin.UI
 
         private void UpdateButtonStates()
         {
-            bool hasSelection = ActionComboBox.SelectedItem != null;
-            bool hasEmail = _currentMail != null;
+            var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+            bool hasSelection = selectedItem?.ItemType == ActionDropdownItemType.Action;
+            bool hasEmail = _currentMail != null || _composeMail != null;
 
-            // Enable Create and Create Multiple buttons when email is selected
-            CreateMultipleButton.IsEnabled = hasEmail;
-
-            UpdateButton.IsEnabled = hasSelection && hasEmail;
-            CloseButton.IsEnabled = hasSelection;
-            ReopenButton.IsEnabled = hasSelection;
+            if (_isComposeMode)
+            {
+                // In compose mode: Use UpdateButtonVisualsForSchedule which handles all button states
+                CreateButton.IsEnabled = hasEmail;
+                // Other buttons handled by UpdateButtonVisualsForSchedule
+                UpdateButtonVisualsForSchedule();
+            }
+            else
+            {
+                // Normal mode: Original logic
+                CreateButton.IsEnabled = hasEmail;
+                UpdateButton.IsEnabled = hasSelection && hasEmail;
+                CreateMultipleButton.IsEnabled = hasEmail;
+                CloseButton.IsEnabled = hasSelection;
+                ReopenButton.IsEnabled = hasSelection;
+            }
         }
 
         private void CreateButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentMail == null)
+            try
             {
-                MessageBox.Show("Please select an email first.", "No Email",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                System.Diagnostics.Debug.WriteLine($"CreateButton_Click: _isComposeMode={_isComposeMode}");
+
+                if (_isComposeMode)
+                {
+                    // Toggle scheduled create
+                    if (_currentDeferredData?.Mode == "Create")
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Canceling Create schedule");
+                        // Cancel scheduling
+                        ClearDeferredData(_composeMail);
+                        _currentDeferredData = null;
+                        SetStatus("Create action schedule canceled");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Scheduling Create action");
+                        // Schedule create - MUTUAL EXCLUSIVITY: clear Update schedule first
+                        if (_currentDeferredData?.Mode == "Update")
+                        {
+                            System.Diagnostics.Debug.WriteLine("  Clearing existing Update schedule first");
+                            ClearDeferredData(_composeMail);
+                        }
+
+                        var data = new DeferredActionData { Mode = "Create" };
+                        SaveDeferredData(_composeMail, data);
+                        _currentDeferredData = data;
+                        SetStatus("Create action scheduled - will execute after send");
+                    }
+                    UpdateButtonVisualsForSchedule();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("  Normal mode - immediate create");
+                    // Normal mode - immediate create
+                    if (_currentMail == null)
+                    {
+                        MessageBox.Show("Please select an email first.", "No Email",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    // Capture the current mail before queuing
+                    var mailToProcess = _currentMail;
+
+                    // Queue the action
+                    _actionQueue.Enqueue(() => ProcessCreateActionAsync(mailToProcess));
+                    ProcessQueue();
+                }
             }
-
-            // Capture the current mail before queuing
-            var mailToProcess = _currentMail;
-
-            // Queue the action
-            _actionQueue.Enqueue(() => ProcessCreateActionAsync(mailToProcess));
-            ProcessQueue();
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR in CreateButton_Click: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                MessageBox.Show($"Error: {ex.Message}", "Create Button Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void CreateMultipleButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentMail == null)
+            try
             {
-                MessageBox.Show("Please select an email first.", "No Email",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                System.Diagnostics.Debug.WriteLine($"CreateMultipleButton_Click: _isComposeMode={_isComposeMode}");
+
+                if (_isComposeMode)
+                {
+                    // Toggle scheduled create multiple
+                    if (_currentDeferredData?.Mode == "CreateMultiple")
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Canceling CreateMultiple schedule");
+                        // Cancel scheduling
+                        ClearDeferredData(_composeMail);
+                        _currentDeferredData = null;
+                        SetStatus("Create multiple actions schedule canceled");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Scheduling CreateMultiple action");
+                        // Clear any existing schedule first
+                        if (_currentDeferredData != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"  Clearing existing {_currentDeferredData.Mode} schedule first");
+                            ClearDeferredData(_composeMail);
+                        }
+
+                        var data = new DeferredActionData { Mode = "CreateMultiple" };
+                        SaveDeferredData(_composeMail, data);
+                        _currentDeferredData = data;
+                        SetStatus("Create multiple actions scheduled - will execute after send");
+                    }
+                    UpdateButtonVisualsForSchedule();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("  Normal mode - immediate create multiple");
+                    // Normal mode - immediate create multiple
+                    if (_currentMail == null)
+                    {
+                        MessageBox.Show("Please select an email first.", "No Email",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    // Capture the current mail before queuing
+                    var mailToProcess = _currentMail;
+
+                    // Queue the action
+                    _actionQueue.Enqueue(() => ProcessCreateMultipleActionsAsync(mailToProcess));
+                    ProcessQueue();
+                }
             }
-
-            // Capture the current mail before queuing
-            var mailToProcess = _currentMail;
-
-            // Queue the action
-            _actionQueue.Enqueue(() => ProcessCreateMultipleActionsAsync(mailToProcess));
-            ProcessQueue();
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR in CreateMultipleButton_Click: {ex.Message}");
+                MessageBox.Show($"Error: {ex.Message}", "Create Multiple Button Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private async Task ProcessCreateActionAsync(Outlook.MailItem mail)
@@ -732,17 +1175,199 @@ namespace FastPMHelperAddin.UI
 
         private void UpdateButton_Click(object sender, RoutedEventArgs e)
         {
-            var selectedAction = ActionComboBox.SelectedItem as ActionItem;
-            if (selectedAction == null || _currentMail == null)
-                return;
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"UpdateButton_Click: _isComposeMode={_isComposeMode}");
 
-            // Capture current values before queuing
-            var mailToProcess = _currentMail;
-            var actionToUpdate = selectedAction;
+                if (_isComposeMode)
+                {
+                    // Toggle scheduled update
+                    if (_currentDeferredData?.Mode == "Update")
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Canceling Update schedule");
+                        // Cancel scheduling
+                        ClearDeferredData(_composeMail);
+                        _currentDeferredData = null;
+                        SetStatus("Update action schedule canceled");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Scheduling Update action");
+                        // Schedule update - must have action selected
+                        var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                        var selectedAction = selectedItem?.Action;
+                        if (selectedAction == null)
+                        {
+                            System.Diagnostics.Debug.WriteLine("  No action selected - showing warning");
+                            MessageBox.Show("Please select an action to update.", "No Action Selected",
+                                MessageBoxButton.OK, MessageBoxImage.Warning);
+                            return;
+                        }
 
-            // Queue the action
-            _actionQueue.Enqueue(() => ProcessUpdateActionAsync(mailToProcess, actionToUpdate));
-            ProcessQueue();
+                        // MUTUAL EXCLUSIVITY: clear Create schedule first
+                        if (_currentDeferredData?.Mode == "Create")
+                        {
+                            System.Diagnostics.Debug.WriteLine("  Clearing existing Create schedule first");
+                            ClearDeferredData(_composeMail);
+                        }
+
+                        var data = new DeferredActionData
+                        {
+                            Mode = "Update",
+                            ActionID = selectedAction.Id
+                        };
+                        SaveDeferredData(_composeMail, data);
+                        _currentDeferredData = data;
+                        SetStatus($"Update action '{selectedAction.Title}' scheduled - will execute after send");
+                    }
+                    UpdateButtonVisualsForSchedule();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("  Normal mode - immediate update");
+                    // Normal mode - immediate update
+                    var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                    var selectedAction = selectedItem?.Action;
+                    if (selectedAction == null || _currentMail == null)
+                        return;
+
+                    // Capture current values before queuing
+                    var mailToProcess = _currentMail;
+                    var actionToUpdate = selectedAction;
+
+                    // Queue the action
+                    _actionQueue.Enqueue(() => ProcessUpdateActionAsync(mailToProcess, actionToUpdate));
+                    ProcessQueue();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR in UpdateButton_Click: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                MessageBox.Show($"Error: {ex.Message}", "Update Button Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void UpdateButtonVisualsForSchedule()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"UpdateButtonVisualsForSchedule: _isComposeMode={_isComposeMode}, DeferredMode={_currentDeferredData?.Mode ?? "None"}");
+
+                // Show/hide compose mode header
+                ComposeModeHeader.Visibility = _isComposeMode ? Visibility.Visible : Visibility.Collapsed;
+
+                if (_isComposeMode)
+                {
+                    // Compose mode - enable buttons based on context
+                    System.Diagnostics.Debug.WriteLine("  Compose mode - updating button states");
+
+                    // Check if an action is selected
+                    var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                    var hasActionSelected = selectedItem?.Action != null;
+                    System.Diagnostics.Debug.WriteLine($"  Action selected: {hasActionSelected}");
+
+                    // Create and Create Multiple are always available in compose mode
+                    CreateMultipleButton.IsEnabled = true;
+
+                    // Update, Close, Reopen require an action to be selected
+                    UpdateButton.IsEnabled = hasActionSelected;
+                    CloseButton.IsEnabled = hasActionSelected;
+                    ReopenButton.IsEnabled = hasActionSelected;
+
+                    // Update button visuals based on scheduled action
+                    var primaryBrush = (SolidColorBrush)FindResource("PrimaryAccent");
+                    var secondaryBrush = (SolidColorBrush)FindResource("SecondaryButton");
+
+                    // Create button
+                    if (_currentDeferredData?.Mode == "Create")
+                    {
+                        CreateButton.Background = ScheduledBrush;
+                        CreateButton.Content = "✓ Cancel Create";
+                    }
+                    else
+                    {
+                        CreateButton.Background = primaryBrush;
+                        CreateButton.Content = "Create New";
+                    }
+
+                    // Create Multiple button (now primary blue)
+                    if (_currentDeferredData?.Mode == "CreateMultiple")
+                    {
+                        CreateMultipleButton.Background = ScheduledBrush;
+                        CreateMultipleButton.Content = "✓ Cancel Multiple";
+                    }
+                    else
+                    {
+                        CreateMultipleButton.Background = primaryBrush;
+                        CreateMultipleButton.Content = "Create Multiple";
+                    }
+
+                    // Update button
+                    if (_currentDeferredData?.Mode == "Update")
+                    {
+                        UpdateButton.Background = ScheduledBrush;
+                        UpdateButton.Content = "✓ Cancel Update";
+                    }
+                    else
+                    {
+                        UpdateButton.Background = primaryBrush;
+                        UpdateButton.Content = "Update";
+                    }
+
+                    // Close button (now primary blue)
+                    if (_currentDeferredData?.Mode == "Close")
+                    {
+                        CloseButton.Background = ScheduledBrush;
+                        CloseButton.Content = "✓ Cancel Close";
+                    }
+                    else
+                    {
+                        CloseButton.Background = primaryBrush;
+                        CloseButton.Content = "Close";
+                    }
+
+                    // Reopen button (now primary blue)
+                    if (_currentDeferredData?.Mode == "Reopen")
+                    {
+                        ReopenButton.Background = ScheduledBrush;
+                        ReopenButton.Content = "✓ Cancel Reopen";
+                    }
+                    else
+                    {
+                        ReopenButton.Background = primaryBrush;
+                        ReopenButton.Content = "Reopen";
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("  Normal mode - resetting to defaults");
+                    // Normal mode - reset to defaults
+                    var primaryBrush = (SolidColorBrush)FindResource("PrimaryAccent");
+                    var secondaryBrush = (SolidColorBrush)FindResource("SecondaryButton");
+
+                    CreateButton.Background = primaryBrush;
+                    CreateButton.Content = "Create New";
+
+                    CreateMultipleButton.Background = primaryBrush;
+                    CreateMultipleButton.Content = "Create Multiple";
+
+                    UpdateButton.Background = primaryBrush;
+                    UpdateButton.Content = "Update";
+
+                    CloseButton.Background = primaryBrush;
+                    CloseButton.Content = "Close";
+
+                    ReopenButton.Background = primaryBrush;
+                    ReopenButton.Content = "Reopen";
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR in UpdateButtonVisualsForSchedule: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
         }
 
         private async Task ProcessUpdateActionAsync(Outlook.MailItem mail, ActionItem selectedAction)
@@ -822,56 +1447,103 @@ namespace FastPMHelperAddin.UI
 
         private async void CloseButton_Click(object sender, RoutedEventArgs e)
         {
-            var selectedAction = ActionComboBox.SelectedItem as ActionItem;
-            if (selectedAction == null || _currentMail == null)
-                return;
-
             try
             {
-                SetStatus("Generating closure summary...");
+                System.Diagnostics.Debug.WriteLine($"CloseButton_Click: _isComposeMode={_isComposeMode}");
 
-                // Get email details
-                DateTime emailDate = GetEmailDate(_currentMail);
-                string closingEmailReference = GetEmailReference(_currentMail);
-
-                if (string.IsNullOrWhiteSpace(closingEmailReference))
+                if (_isComposeMode)
                 {
-                    MessageBox.Show("Could not extract email reference. Please try again.", "Error",
-                        MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
+                    // Toggle scheduled close
+                    if (_currentDeferredData?.Mode == "Close")
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Canceling Close schedule");
+                        // Cancel scheduling
+                        ClearDeferredData(_composeMail);
+                        _currentDeferredData = null;
+                        SetStatus("Close action schedule canceled");
+                    }
+                    else
+                    {
+                        // Need an action selected to close
+                        var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                        var selectedAction = selectedItem?.Action;
+                        if (selectedAction == null)
+                        {
+                            MessageBox.Show("Please select an action to close.", "No Action",
+                                MessageBoxButton.OK, MessageBoxImage.Warning);
+                            return;
+                        }
+
+                        System.Diagnostics.Debug.WriteLine("  Scheduling Close action");
+                        // Clear any existing schedule first
+                        if (_currentDeferredData != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"  Clearing existing {_currentDeferredData.Mode} schedule first");
+                            ClearDeferredData(_composeMail);
+                        }
+
+                        var data = new DeferredActionData { Mode = "Close", ActionID = selectedAction.Id };
+                        SaveDeferredData(_composeMail, data);
+                        _currentDeferredData = data;
+                        SetStatus($"Close action '{selectedAction.Title}' scheduled - will execute after send");
+                    }
+                    UpdateButtonVisualsForSchedule();
                 }
-
-                // Generate LLM closure summary
-                string actionContext = $"Title: {selectedAction.Title}\nProject: {selectedAction.Project}\nPackage: {selectedAction.Package}";
-                string closureNote;
-
-                try
+                else
                 {
-                    SetStatus("Analyzing email for closure summary...");
-                    closureNote = await _llmService.GetClosureSummaryAsync(_currentMail.Body, actionContext);
+                    System.Diagnostics.Debug.WriteLine("  Normal mode - immediate close");
+                    // Normal mode - immediate close
+                    var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                    var selectedAction = selectedItem?.Action;
+                    if (selectedAction == null || _currentMail == null)
+                        return;
+
+                    SetStatus("Generating closure summary...");
+
+                    // Get email details
+                    DateTime emailDate = GetEmailDate(_currentMail);
+                    string closingEmailReference = GetEmailReference(_currentMail);
+
+                    if (string.IsNullOrWhiteSpace(closingEmailReference))
+                    {
+                        MessageBox.Show("Could not extract email reference. Please try again.", "Error",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    // Generate LLM closure summary
+                    string actionContext = $"Title: {selectedAction.Title}\nProject: {selectedAction.Project}\nPackage: {selectedAction.Package}";
+                    string closureNote;
+
+                    try
+                    {
+                        SetStatus("Analyzing email for closure summary...");
+                        closureNote = await _llmService.GetClosureSummaryAsync(_currentMail.Body, actionContext);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"LLM closure summary failed: {ex.Message}");
+                        closureNote = "Action closed";
+                    }
+
+                    SetStatus("Closing action...");
+
+                    // Close the action with LLM-generated note, email reference, and date
+                    await _googleSheetsService.CloseActionAsync(
+                        selectedAction.Id,
+                        closureNote,
+                        closingEmailReference,
+                        emailDate
+                    );
+
+                    SetStatus("Action closed successfully");
+
+                    await LoadActionsAsync();
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"LLM closure summary failed: {ex.Message}");
-                    closureNote = "Action closed";
-                }
-
-                SetStatus("Closing action...");
-
-                // Close the action with LLM-generated note, email reference, and date
-                await _googleSheetsService.CloseActionAsync(
-                    selectedAction.Id,
-                    closureNote,
-                    closingEmailReference,
-                    emailDate
-                );
-
-                SetStatus("Action closed successfully");
-
-                await LoadActionsAsync();
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"ERROR in CloseButton_Click: {ex.Message}");
                 SetStatus("Error closing action");
                 MessageBox.Show($"Error closing action: {ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
@@ -880,23 +1552,70 @@ namespace FastPMHelperAddin.UI
 
         private async void ReopenButton_Click(object sender, RoutedEventArgs e)
         {
-            var selectedAction = ActionComboBox.SelectedItem as ActionItem;
-            if (selectedAction == null || _currentMail == null)
-                return;
-
             try
             {
-                DateTime emailDate = GetEmailDate(_currentMail);
-                int dueDays = GetDefaultDueDays();
+                System.Diagnostics.Debug.WriteLine($"ReopenButton_Click: _isComposeMode={_isComposeMode}");
 
-                await _googleSheetsService.SetStatusAsync(selectedAction.Id, "Open", emailDate, dueDays);
+                if (_isComposeMode)
+                {
+                    // Toggle scheduled reopen
+                    if (_currentDeferredData?.Mode == "Reopen")
+                    {
+                        System.Diagnostics.Debug.WriteLine("  Canceling Reopen schedule");
+                        // Cancel scheduling
+                        ClearDeferredData(_composeMail);
+                        _currentDeferredData = null;
+                        SetStatus("Reopen action schedule canceled");
+                    }
+                    else
+                    {
+                        // Need an action selected to reopen
+                        var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                        var selectedAction = selectedItem?.Action;
+                        if (selectedAction == null)
+                        {
+                            MessageBox.Show("Please select an action to reopen.", "No Action",
+                                MessageBoxButton.OK, MessageBoxImage.Warning);
+                            return;
+                        }
 
-                MessageBox.Show("Action reopened.", "Success",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-                LoadActionsAsync();
+                        System.Diagnostics.Debug.WriteLine("  Scheduling Reopen action");
+                        // Clear any existing schedule first
+                        if (_currentDeferredData != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"  Clearing existing {_currentDeferredData.Mode} schedule first");
+                            ClearDeferredData(_composeMail);
+                        }
+
+                        var data = new DeferredActionData { Mode = "Reopen", ActionID = selectedAction.Id };
+                        SaveDeferredData(_composeMail, data);
+                        _currentDeferredData = data;
+                        SetStatus($"Reopen action '{selectedAction.Title}' scheduled - will execute after send");
+                    }
+                    UpdateButtonVisualsForSchedule();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("  Normal mode - immediate reopen");
+                    // Normal mode - immediate reopen
+                    var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                    var selectedAction = selectedItem?.Action;
+                    if (selectedAction == null || _currentMail == null)
+                        return;
+
+                    DateTime emailDate = GetEmailDate(_currentMail);
+                    int dueDays = GetDefaultDueDays();
+
+                    await _googleSheetsService.SetStatusAsync(selectedAction.Id, "Open", emailDate, dueDays);
+
+                    MessageBox.Show("Action reopened.", "Success",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    LoadActionsAsync();
+                }
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"ERROR in ReopenButton_Click: {ex.Message}");
                 MessageBox.Show($"Error reopening action: {ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
@@ -1021,7 +1740,8 @@ namespace FastPMHelperAddin.UI
             // Re-enable linked action editing
             Dispatcher.Invoke(() =>
             {
-                if (LinkedActionBorder != null && ActionComboBox.SelectedItem != null)
+                var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                if (LinkedActionBorder != null && selectedItem?.ItemType == ActionDropdownItemType.Action)
                     LinkedActionBorder.IsEnabled = true;
             });
 
@@ -1152,5 +1872,507 @@ namespace FastPMHelperAddin.UI
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        #region Compose Mode Detection
+
+        /// <summary>
+        /// Called when a compose window (Inspector) is opened OR when inline compose is detected
+        /// </summary>
+        public void OnComposeItemActivated(Outlook.MailItem mail, Outlook.Inspector inspector)
+        {
+            System.Diagnostics.Debug.WriteLine($"OnComposeItemActivated: {mail.Subject ?? "(No Subject)"}");
+            System.Diagnostics.Debug.WriteLine($"  Inspector: {(inspector != null ? "Popup window" : "Inline editing")}");
+
+            _composeMail = mail;
+            _composeInspector = inspector; // Can be null for inline editing
+            _isComposeMode = true;
+
+            // Load any existing deferred data
+            _currentDeferredData = LoadDeferredData(mail);
+
+            // Hook inspector close event ONLY if popup window (inspector is not null)
+            if (inspector != null)
+            {
+                try
+                {
+                    ((Outlook.InspectorEvents_10_Event)inspector).Close += Inspector_Close;
+                    System.Diagnostics.Debug.WriteLine("  Hooked Inspector.Close event for popup window");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"  Error hooking Inspector.Close: {ex.Message}");
+                }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("  Inline compose - no Inspector to hook (will exit via Explorer_SelectionChange)");
+            }
+
+            // Update UI for compose mode
+            UpdateUIForComposeMode();
+
+            System.Diagnostics.Debug.WriteLine($"  Compose mode activated. Deferred data: {(_currentDeferredData != null ? _currentDeferredData.Mode : "None")}");
+        }
+
+        /// <summary>
+        /// Called when the compose window is closed
+        /// </summary>
+        private void Inspector_Close()
+        {
+            System.Diagnostics.Debug.WriteLine("Inspector_Close event fired");
+            OnComposeItemDeactivated();
+        }
+
+        /// <summary>
+        /// Deactivates compose mode and restores normal UI
+        /// </summary>
+        public void OnComposeItemDeactivated()
+        {
+            System.Diagnostics.Debug.WriteLine("OnComposeItemDeactivated");
+
+            // Unhook inspector event
+            if (_composeInspector != null)
+            {
+                try
+                {
+                    ((Outlook.InspectorEvents_10_Event)_composeInspector).Close -= Inspector_Close;
+                    System.Diagnostics.Debug.WriteLine("  Unhooked Inspector.Close event");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"  Error unhooking Inspector.Close: {ex.Message}");
+                }
+            }
+
+            _composeMail = null;
+            _composeInspector = null;
+            _isComposeMode = false;
+            _currentDeferredData = null;
+
+            // Restore normal UI
+            Dispatcher.Invoke(() =>
+            {
+                UpdateButtonVisualsForSchedule(); // Reset button visuals
+                UpdateButtonStates();
+            });
+
+            System.Diagnostics.Debug.WriteLine("  Compose mode deactivated");
+        }
+
+        /// <summary>
+        /// Updates the UI to reflect compose mode vs normal mode
+        /// </summary>
+        private void UpdateUIForComposeMode()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Update button visuals based on scheduled state
+                UpdateButtonVisualsForSchedule();
+
+                // Update button enabled states
+                UpdateButtonStates();
+            });
+        }
+
+        #endregion
+
+        #region Deferred Action - UserProperties Helpers
+
+        /// <summary>
+        /// Saves deferred action data to the mail item's UserProperties
+        /// </summary>
+        private void SaveDeferredData(Outlook.MailItem mail, DeferredActionData data)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"=== SaveDeferredData START ===");
+                System.Diagnostics.Debug.WriteLine($"Mail subject: {mail.Subject}");
+                System.Diagnostics.Debug.WriteLine($"Data Mode: {data.Mode}, ActionID: {data.ActionID}");
+
+                var json = JsonSerializer.Serialize(data);
+                System.Diagnostics.Debug.WriteLine($"Serialized JSON: {json}");
+
+                var props = mail.UserProperties;
+                System.Diagnostics.Debug.WriteLine($"Current UserProperties count: {props.Count}");
+
+                var prop = props.Find(DEFERRED_PROPERTY_NAME);
+
+                if (prop == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Creating new property: {DEFERRED_PROPERTY_NAME}");
+                    prop = props.Add(DEFERRED_PROPERTY_NAME, Outlook.OlUserPropertyType.olText);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"Updating existing property: {DEFERRED_PROPERTY_NAME}");
+                }
+
+                prop.Value = json;
+                mail.Save();
+
+                System.Diagnostics.Debug.WriteLine($"✓ Property saved and mail.Save() called");
+                System.Diagnostics.Debug.WriteLine($"=== SaveDeferredData END ===");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR saving deferred data: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Loads deferred action data from the mail item's UserProperties
+        /// </summary>
+        private DeferredActionData LoadDeferredData(Outlook.MailItem mail)
+        {
+            try
+            {
+                var props = mail.UserProperties;
+                var prop = props.Find(DEFERRED_PROPERTY_NAME);
+
+                if (prop == null || string.IsNullOrEmpty(prop.Value?.ToString()))
+                {
+                    return null;
+                }
+
+                var json = prop.Value.ToString();
+                var data = JsonSerializer.Deserialize<DeferredActionData>(json);
+
+                System.Diagnostics.Debug.WriteLine($"Loaded deferred data: {json}");
+                return data;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading deferred data: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Clears deferred action data from the mail item's UserProperties
+        /// </summary>
+        private void ClearDeferredData(Outlook.MailItem mail)
+        {
+            try
+            {
+                var props = mail.UserProperties;
+                var prop = props.Find(DEFERRED_PROPERTY_NAME);
+
+                if (prop != null)
+                {
+                    prop.Delete();
+                    mail.Save();
+                    System.Diagnostics.Debug.WriteLine("Cleared deferred data");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error clearing deferred data: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region Deferred Action Execution
+
+        /// <summary>
+        /// Executes a deferred create action when the email is sent
+        /// </summary>
+        public async Task ExecuteDeferredCreateAsync(Outlook.MailItem sentMail)
+        {
+            System.Diagnostics.Debug.WriteLine($"=== ExecuteDeferredCreateAsync: {sentMail.Subject} ===");
+
+            try
+            {
+                // Get final email data from the sent item
+                string body = sentMail.Body ?? "";
+                string senderEmail = sentMail.SenderEmailAddress ?? "";
+                string toRecipients = sentMail.To ?? "";
+                string subject = sentMail.Subject ?? "";
+
+                System.Diagnostics.Debug.WriteLine("Running auto-classification...");
+
+                // AUTO-CLASSIFY Project and Package
+                var classification = await Task.Run(() =>
+                    _classifierService.Classify(subject, body, senderEmail, toRecipients));
+
+                string project = classification.SuggestedProjectID ?? "Random";
+                string package = classification.SuggestedPackageID ?? "";
+
+                System.Diagnostics.Debug.WriteLine($"Classification: Project={project}, Package={package}");
+                System.Diagnostics.Debug.WriteLine("Running LLM extraction...");
+
+                // Get LLM suggestions for Title, BallHolder, Description
+                var extraction = await _llmService.GetExtractionAsync(body, senderEmail, subject);
+
+                System.Diagnostics.Debug.WriteLine($"LLM extraction: Title={extraction.Title}, BallHolder={extraction.BallHolder}");
+
+                string title = extraction.Title;
+                string ballHolder = extraction.BallHolder;
+                string description = extraction.Description;
+
+                // Get email metadata
+                string conversationId = sentMail.ConversationID;
+                string emailReference = GetEmailReference(sentMail);
+                DateTime emailDate = GetEmailDate(sentMail);
+                int dueDays = GetDefaultDueDays();
+
+                System.Diagnostics.Debug.WriteLine("Creating action in Google Sheets...");
+
+                // Create the action (no confirmation dialog in deferred mode)
+                await _googleSheetsService.CreateActionAsync(
+                    project,
+                    package,
+                    title,
+                    ballHolder,
+                    conversationId,
+                    emailReference,
+                    description,
+                    emailDate,
+                    dueDays
+                );
+
+                System.Diagnostics.Debug.WriteLine($"=== Deferred create SUCCESS: {title} ===");
+
+                // Update status
+                SetStatus($"✓ Action created: {title}");
+
+                // Reload actions
+                await LoadActionsAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"=== Deferred create FAILED: {ex.Message} ===");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                SetStatus($"✗ Failed to create action: {ex.Message}");
+                throw; // Re-throw so ThisAddIn can handle the error
+            }
+        }
+
+        /// <summary>
+        /// Executes a deferred update action when the email is sent
+        /// </summary>
+        public async Task ExecuteDeferredUpdateAsync(Outlook.MailItem sentMail, int actionId)
+        {
+            System.Diagnostics.Debug.WriteLine($"=== ExecuteDeferredUpdateAsync: ActionID={actionId}, Email={sentMail.Subject} ===");
+
+            try
+            {
+                // Find the action by ID
+                var selectedAction = _openActions?.FirstOrDefault(a => a.Id == actionId);
+
+                if (selectedAction == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"WARNING: Action ID {actionId} not found in open actions list");
+                    // Try to reload actions and search again
+                    await LoadActionsAsync();
+                    selectedAction = _openActions?.FirstOrDefault(a => a.Id == actionId);
+
+                    if (selectedAction == null)
+                    {
+                        throw new Exception($"Action ID {actionId} not found");
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"Found action: {selectedAction.Title}");
+
+                // Get final email body from sent item
+                string body = sentMail.Body ?? "";
+                string currentContext = selectedAction.HistoryLog ?? "";
+                string currentBallHolder = selectedAction.BallHolder ?? "";
+
+                System.Diagnostics.Debug.WriteLine("Running LLM delta analysis...");
+
+                // Get LLM delta
+                var delta = await _llmService.GetDeltaAsync(body, currentContext, currentBallHolder);
+
+                System.Diagnostics.Debug.WriteLine($"LLM delta: BallHolder={delta.NewBallHolder}, Summary={delta.UpdateSummary?.Substring(0, Math.Min(50, delta.UpdateSummary?.Length ?? 0))}");
+
+                string ballHolder = delta.NewBallHolder;
+                string updateNote = delta.UpdateSummary;
+
+                // Get email metadata
+                string emailReference = GetEmailReference(sentMail);
+                DateTime emailDate = GetEmailDate(sentMail);
+                int dueDays = GetDefaultDueDays();
+
+                System.Diagnostics.Debug.WriteLine("Updating action in Google Sheets...");
+
+                // Update the action (no confirmation dialog in deferred mode)
+                await _googleSheetsService.UpdateActionAsync(
+                    selectedAction.Id,
+                    emailReference,
+                    ballHolder,
+                    updateNote,
+                    emailDate,
+                    dueDays
+                );
+
+                System.Diagnostics.Debug.WriteLine($"=== Deferred update SUCCESS: {selectedAction.Title} ===");
+
+                // Update status
+                SetStatus($"✓ Action updated: {selectedAction.Title}");
+
+                // Reload actions
+                await LoadActionsAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"=== Deferred update FAILED: {ex.Message} ===");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                SetStatus($"✗ Failed to update action: {ex.Message}");
+                throw; // Re-throw so ThisAddIn can handle the error
+            }
+        }
+
+        /// <summary>
+        /// Executes a deferred "create multiple" action when the email is sent
+        /// </summary>
+        public async Task ExecuteDeferredCreateMultipleAsync(Outlook.MailItem sentMail)
+        {
+            System.Diagnostics.Debug.WriteLine($"=== ExecuteDeferredCreateMultipleAsync: {sentMail.Subject} ===");
+
+            try
+            {
+                // Just call the regular CreateMultiple processing logic
+                await ProcessCreateMultipleActionsAsync(sentMail);
+
+                System.Diagnostics.Debug.WriteLine("=== Deferred create multiple SUCCESS ===");
+                SetStatus("✓ Multiple actions created");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"=== Deferred create multiple FAILED: {ex.Message} ===");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                SetStatus($"✗ Failed to create multiple actions: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a deferred close action when the email is sent
+        /// </summary>
+        public async Task ExecuteDeferredCloseAsync(Outlook.MailItem sentMail, int actionId)
+        {
+            System.Diagnostics.Debug.WriteLine($"=== ExecuteDeferredCloseAsync: ActionID={actionId}, Email={sentMail.Subject} ===");
+
+            try
+            {
+                // Find the action by ID
+                var selectedAction = _openActions?.FirstOrDefault(a => a.Id == actionId);
+
+                if (selectedAction == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"WARNING: Action ID {actionId} not found in open actions list");
+                    await LoadActionsAsync();
+                    selectedAction = _openActions?.FirstOrDefault(a => a.Id == actionId);
+
+                    if (selectedAction == null)
+                    {
+                        throw new Exception($"Action ID {actionId} not found");
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"Found action: {selectedAction.Title}");
+
+                // Get email details
+                DateTime emailDate = GetEmailDate(sentMail);
+                string closingEmailReference = GetEmailReference(sentMail);
+
+                if (string.IsNullOrWhiteSpace(closingEmailReference))
+                {
+                    throw new Exception("Could not extract email reference");
+                }
+
+                // Generate LLM closure summary
+                string actionContext = $"Title: {selectedAction.Title}\nProject: {selectedAction.Project}\nPackage: {selectedAction.Package}";
+                string closureNote;
+
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("Analyzing email for closure summary...");
+                    closureNote = await _llmService.GetClosureSummaryAsync(sentMail.Body, actionContext);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"LLM closure summary failed: {ex.Message}");
+                    closureNote = "Action closed";
+                }
+
+                System.Diagnostics.Debug.WriteLine("Closing action in Google Sheets...");
+
+                // Close the action
+                await _googleSheetsService.CloseActionAsync(
+                    selectedAction.Id,
+                    closureNote,
+                    closingEmailReference,
+                    emailDate
+                );
+
+                System.Diagnostics.Debug.WriteLine($"=== Deferred close SUCCESS: {selectedAction.Title} ===");
+                SetStatus($"✓ Action closed: {selectedAction.Title}");
+
+                // Reload actions
+                await LoadActionsAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"=== Deferred close FAILED: {ex.Message} ===");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                SetStatus($"✗ Failed to close action: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a deferred reopen action when the email is sent
+        /// </summary>
+        public async Task ExecuteDeferredReopenAsync(Outlook.MailItem sentMail, int actionId)
+        {
+            System.Diagnostics.Debug.WriteLine($"=== ExecuteDeferredReopenAsync: ActionID={actionId}, Email={sentMail.Subject} ===");
+
+            try
+            {
+                // Find the action by ID
+                var selectedAction = _openActions?.FirstOrDefault(a => a.Id == actionId);
+
+                if (selectedAction == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"WARNING: Action ID {actionId} not found");
+                    await LoadActionsAsync();
+                    selectedAction = _openActions?.FirstOrDefault(a => a.Id == actionId);
+
+                    if (selectedAction == null)
+                    {
+                        throw new Exception($"Action ID {actionId} not found");
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"Found action: {selectedAction.Title}");
+
+                DateTime emailDate = GetEmailDate(sentMail);
+                int dueDays = GetDefaultDueDays();
+
+                System.Diagnostics.Debug.WriteLine("Reopening action in Google Sheets...");
+
+                await _googleSheetsService.SetStatusAsync(selectedAction.Id, "Open", emailDate, dueDays);
+
+                System.Diagnostics.Debug.WriteLine($"=== Deferred reopen SUCCESS: {selectedAction.Title} ===");
+                SetStatus($"✓ Action reopened: {selectedAction.Title}");
+
+                // Reload actions
+                await LoadActionsAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"=== Deferred reopen FAILED: {ex.Message} ===");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                SetStatus($"✗ Failed to reopen action: {ex.Message}");
+                throw;
+            }
+        }
+
+        #endregion
     }
 }
