@@ -46,6 +46,9 @@ namespace FastPMHelperAddin.UI
 
         private ActionFieldState _previousActionState;
 
+        // User name for health indicator assignment checking
+        private string _currentUserName;
+
         // Compose mode fields for deferred action execution
         private bool _isComposeMode = false;
         private Outlook.MailItem _composeMail;
@@ -62,8 +65,73 @@ namespace FastPMHelperAddin.UI
         public ProjectActionPane()
         {
             InitializeComponent();
+            LoadUserSettings();
             InitializeServices();
             LoadActionsAsync();
+        }
+
+        private void LoadUserSettings()
+        {
+            try
+            {
+                // Load user name from settings
+                _currentUserName = Properties.Settings.Default.UserName;
+
+                // Populate the TextBox
+                MyNameInput.Text = _currentUserName ?? "Wally Cloud";
+
+                // If setting was null/empty, set default
+                if (string.IsNullOrWhiteSpace(_currentUserName))
+                {
+                    _currentUserName = "Wally Cloud";
+                    Properties.Settings.Default.UserName = _currentUserName;
+                    Properties.Settings.Default.Save();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading user settings: {ex.Message}");
+                _currentUserName = "Wally Cloud"; // Fallback
+                MyNameInput.Text = _currentUserName;
+            }
+        }
+
+        private void MyNameInput_LostFocus(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string newName = MyNameInput.Text?.Trim() ?? "";
+
+                // If empty, revert to default
+                if (string.IsNullOrWhiteSpace(newName))
+                {
+                    newName = "Wally Cloud";
+                    MyNameInput.Text = newName;
+                }
+
+                // Only save and refresh if changed
+                if (newName != _currentUserName)
+                {
+                    _currentUserName = newName;
+                    Properties.Settings.Default.UserName = newName;
+                    Properties.Settings.Default.Save();
+
+                    // Refresh indicators if an action is currently displayed
+                    var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                    if (selectedItem?.Action != null)
+                    {
+                        UpdateHealthIndicators(selectedItem.Action);
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"User name updated to: {newName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error saving user name: {ex.Message}");
+                MessageBox.Show($"Error saving user name: {ex.Message}", "Settings Error",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         private void InitializeServices()
@@ -506,6 +574,103 @@ namespace FastPMHelperAddin.UI
             UpdateButtonStates();
         }
 
+        /// <summary>
+        /// Updates the health indicator dots based on action status, due date, and assignment.
+        /// </summary>
+        /// <param name="action">The action to evaluate</param>
+        private void UpdateHealthIndicators(ActionItem action)
+        {
+            if (action == null)
+            {
+                // Hide both indicators when no action
+                OverdueIndicator.Visibility = Visibility.Collapsed;
+                WithMeIndicator.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            // Check if action is NOT Closed (indicators apply to all non-closed statuses)
+            bool isNotClosed = !string.Equals(action.Status, "Closed", StringComparison.OrdinalIgnoreCase);
+
+            // OVERDUE CHECK
+            // Show red dot if: Status != "Closed" AND DueDate < Today (strictly past)
+            bool isOverdue = false;
+            if (isNotClosed && action.DueDate.HasValue)
+            {
+                isOverdue = action.DueDate.Value.Date < DateTime.Today;
+            }
+            OverdueIndicator.Visibility = isOverdue ? Visibility.Visible : Visibility.Collapsed;
+
+            // ASSIGNMENT CHECK ("With Me")
+            // Show amber dot if: Status != "Closed" AND BallHolder contains user's name (flexible matching)
+            bool isWithMe = false;
+            if (isNotClosed && !string.IsNullOrWhiteSpace(action.BallHolder) && !string.IsNullOrWhiteSpace(_currentUserName))
+            {
+                isWithMe = IsAssignedToUser(action.BallHolder, _currentUserName);
+            }
+            WithMeIndicator.Visibility = isWithMe ? Visibility.Visible : Visibility.Collapsed;
+
+            // Debug output
+            System.Diagnostics.Debug.WriteLine($"Health Indicators - Action: {action.Title}, Status: {action.Status}, " +
+                $"Overdue: {isOverdue}, WithMe: {isWithMe}");
+        }
+
+        /// <summary>
+        /// Checks if the BallHolder field indicates assignment to the current user.
+        /// Supports flexible name matching: Full name, First name, Last name, or partial match.
+        /// </summary>
+        /// <param name="ballHolder">The BallHolder field value (e.g., "Wally C", "Cloud, Wally", "Wally Cloud")</param>
+        /// <param name="userName">The user's configured name (e.g., "Wally Cloud")</param>
+        /// <returns>True if the BallHolder is assigned to the user</returns>
+        private bool IsAssignedToUser(string ballHolder, string userName)
+        {
+            // Normalize for comparison (case-insensitive, trim whitespace)
+            string ballHolderNormalized = ballHolder.Trim().ToLowerInvariant();
+            string userNameNormalized = userName.Trim().ToLowerInvariant();
+
+            // Check 1: Exact match (handles "Wally Cloud" == "Wally Cloud")
+            if (ballHolderNormalized.Contains(userNameNormalized))
+                return true;
+
+            // Split user name into parts for flexible matching
+            string[] userParts = userNameNormalized.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (userParts.Length == 0)
+                return false;
+
+            // Check 2: Full name match in reverse ("Cloud, Wally" or "Cloud Wally")
+            if (userParts.Length >= 2)
+            {
+                string reversedName = $"{userParts[userParts.Length - 1]} {userParts[0]}"; // "cloud wally"
+                if (ballHolderNormalized.Contains(reversedName))
+                    return true;
+
+                string reversedNameWithComma = $"{userParts[userParts.Length - 1]}, {userParts[0]}"; // "cloud, wally"
+                if (ballHolderNormalized.Contains(reversedNameWithComma))
+                    return true;
+            }
+
+            // Check 3: First name or Last name match (handles "Wally", "Cloud", "Wally C")
+            foreach (string part in userParts)
+            {
+                if (part.Length >= 2 && ballHolderNormalized.Contains(part))
+                    return true;
+            }
+
+            // Check 4: Initial matching (handles "W. Cloud", "Wally C.", "W.C.")
+            // For each part, check if BallHolder contains first letter + period
+            foreach (string part in userParts)
+            {
+                if (part.Length > 0)
+                {
+                    string initial = $"{part[0]}.";
+                    if (ballHolderNormalized.Contains(initial))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
         private void PopulateLinkedActionFields(ActionItem action)
         {
             if (action == null)
@@ -521,6 +686,9 @@ namespace FastPMHelperAddin.UI
                 LinkedTitleTextBox.Text = action.Title ?? "";
                 LinkedBallHolderTextBox.Text = action.BallHolder ?? "";
                 LinkedDueDatePicker.SelectedDate = action.DueDate;
+
+                // Update health indicators for the newly displayed action
+                UpdateHealthIndicators(action);
             });
         }
 
@@ -534,6 +702,9 @@ namespace FastPMHelperAddin.UI
                 LinkedBallHolderTextBox.Text = "";
                 LinkedDueDatePicker.SelectedDate = null;
                 RelatedMessagesListView.ItemsSource = null;
+
+                // Hide health indicators when no action is displayed
+                UpdateHealthIndicators(null);
             });
 
             _previousActionState = null;
@@ -647,6 +818,9 @@ namespace FastPMHelperAddin.UI
                 selectedAction.Title = title;
                 selectedAction.BallHolder = ballHolder;
                 selectedAction.DueDate = dueDate;
+
+                // Refresh health indicators after save (status/assignment/due date may have changed)
+                Dispatcher.Invoke(() => UpdateHealthIndicators(selectedAction));
 
                 // Refresh ComboBox display - rebuild with grouping
                 if (_currentMail != null)

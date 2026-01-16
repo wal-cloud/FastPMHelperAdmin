@@ -24,3 +24,15 @@ Run this in PowerShell to rebuild:
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" "FastPMHelperAddin.sln" /t:Rebuild /p:Configuration=Debug
+
+## 5. Project Map (Key Locations)
+* **Entry Point (VSTO):** `Outlook\ThisAddIn.cs`
+    * *Start here for Add-in lifecycle events (Startup/Shutdown).*
+* **Main UI Panel:** `UI\ProjectActionPane.xaml`
+    * *This is the primary Task Pane visible to the user.*
+* **Business Logic:** `Services\`
+    * *Contains all functional logic (Graph API, Google Sheets, AI, etc.).*
+* **Data Models:** `Models\`
+    * *POCOs for ActionItems, Rules, and data transfer.*
+* **Configuration:** `Configuration\` & `Properties\`
+    * *User settings and environment config.*

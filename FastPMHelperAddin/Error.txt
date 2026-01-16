@@ -1,8 +1,27 @@
-﻿Severity	Code	Description	Project	File	Line	Suppression State
-Error	CS0246	The type or namespace name 'ActionExtraction' could not be found (are you missing a using directive or an assembly reference?)	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	932	Active
-Error	CS0246	The type or namespace name 'ActionExtraction' could not be found (are you missing a using directive or an assembly reference?)	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	1074	Active
-Error	CS0246	The type or namespace name 'ActionExtraction' could not be found (are you missing a using directive or an assembly reference?)	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	2188	Active
-Error	CS0246	The type or namespace name 'ActionDelta' could not be found (are you missing a using directive or an assembly reference?)	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	2291	Active
-Warning		The referenced component 'Microsoft.SharePoint.Client.Runtime' could not be found.	FastPMHelperAddin			
-Warning		The referenced component 'Microsoft.SharePoint.Client' could not be found.	FastPMHelperAddin			
-Error	CS0029	Cannot implicitly convert type 'System.Collections.Generic.List<FastPMHelperAddin.Services.LLMExtractionResult>' to 'System.Collections.Generic.List<ActionExtraction>'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	1077	Active
+﻿=== Explorer_SelectionChange EVENT FIRED === (Time: 14:26:25.757)
+  Current Explorer: 5541955, Stored Explorer: 5541955
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  Sent status: True
+  Regular sent/received email - normal mode
+OnEmailSelected called with: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+Health Indicators - Action: Provide Detailed Manufacturing Schedule, Status: Open, Overdue: False, WithMe: False
+Status: Loading 6 related messages...
+Email selection updated: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+=== Explorer_SelectionChange EVENT FIRED === (Time: 14:26:25.786)
+  Current Explorer: 5541955, Stored Explorer: 5541955
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  Sent status: True
+  Regular sent/received email - normal mode
+OnEmailSelected called with: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+Email selection updated: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+Retrieved email via EntryID: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+Retrieved email via EntryID: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+Retrieved email via EntryID: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+Retrieved email via EntryID: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+Retrieved email via EntryID: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+Retrieved email via EntryID: FW: quick follow up
+Status: Loaded 6 related messages

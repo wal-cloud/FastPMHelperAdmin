@@ -341,9 +341,11 @@
                             </Style>
                         </Border.Style>
                         <StackPanel>
-                            <!-- Section Header -->
+                            <!-- Section Header with Health Indicators -->
                             <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -356,8 +358,31 @@
                                            Foreground="{StaticResource TextPrimary}"
                                            VerticalAlignment="Center"/>
 
+                                <!-- Health Indicators (small dots to the right of header) -->
+                                <StackPanel Grid.Column="1"
+                                            Orientation="Horizontal"
+                                            Margin="8,0,0,0"
+                                            VerticalAlignment="Center">
+                                    <!-- Overdue Indicator (Red Dot) -->
+                                    <Ellipse x:Name="OverdueIndicator"
+                                             Width="10"
+                                             Height="10"
+                                             Fill="#D32F2F"
+                                             Margin="0,0,4,0"
+                                             Visibility="Collapsed"
+                                             ToolTip="Action is Overdue"/>
+
+                                    <!-- With Me Indicator (Amber/Gold Dot) -->
+                                    <Ellipse x:Name="WithMeIndicator"
+                                             Width="10"
+                                             Height="10"
+                                             Fill="#FFA000"
+                                             Visibility="Collapsed"
+                                             ToolTip="Assigned to You"/>
+                                </StackPanel>
+
                                 <Button x:Name="SaveLinkedActionButton"
-                                        Grid.Column="1"
+                                        Grid.Column="3"
                                         Content="✓"
                                         FontSize="16"
                                         FontWeight="Bold"
@@ -550,7 +575,7 @@
                       FontFamily="Segoe UI"
                       Foreground="{StaticResource TextSecondary}"/>
 
-            <StackPanel Orientation="Horizontal">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                 <TextBlock Text="Default due in:"
                            VerticalAlignment="Center"
                            FontSize="12"
@@ -568,6 +593,23 @@
                            FontFamily="Segoe UI"
                            Foreground="{StaticResource TextSecondary}"
                            Margin="6,0,0,0"/>
+            </StackPanel>
+
+            <!-- User Name Setting -->
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="My Name (for tracking):"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           FontFamily="Segoe UI"
+                           Foreground="{StaticResource TextSecondary}"
+                           Margin="0,0,6,0"
+                           Width="140"/>
+                <TextBox x:Name="MyNameInput"
+                         Width="150"
+                         Style="{StaticResource ModernTextBox}"
+                         VerticalAlignment="Center"
+                         LostFocus="MyNameInput_LostFocus"
+                         ToolTip="Your name for assignment tracking (e.g., 'Wally Cloud')"/>
             </StackPanel>
         </StackPanel>
     </Grid>
