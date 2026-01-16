@@ -1,14 +1,8 @@
-﻿Email selection updated: 86114 v29 - LIST - AREA 240 ALARM AND TRIP SCHEDULE
-=== Explorer_InlineResponse EVENT FIRED === (Time: 21:18:58.992)
-  Inline compose started for: RE: 86114 v29 - LIST - AREA 240 ALARM AND TRIP SCHEDULE
-  Entering compose mode (inline)
-OnComposeItemActivated: RE: 86114 v29 - LIST - AREA 240 ALARM AND TRIP SCHEDULE
-  Inspector: Inline editing
-'outlook.exe' (CLR v4.0.30319: FastPMHelperAddin.vsto|vstolocal): Loaded 'C:\Users\wally\AppData\Local\assembly\dl3\3Y625D6P.5NV\KLE3EOK9.6A6\12df79db\0084e651_7b44dc01\System.Text.Json.dll'. Skipped loading symbols. Module is optimized and the debugger option 'Just My Code' is enabled.
-  Inline compose - no Inspector to hook (will exit via Explorer_SelectionChange)
-UpdateButtonVisualsForSchedule: _isComposeMode=True, DeferredMode=None
-  Compose mode - enabling all buttons
-System.Windows.ResourceDictionary Warning: 9 : Resource not found; ResourceKey='SecondaryAccent'
-The thread 0xbb24 has exited with code 0 (0x0).
-The thread 0xa4ac has exited with code 0 (0x0).
-The thread 0x91c0 has exited with code 0 (0x0).
+﻿Severity	Code	Description	Project	File	Line	Suppression State
+Error	CS0246	The type or namespace name 'ActionExtraction' could not be found (are you missing a using directive or an assembly reference?)	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	932	Active
+Error	CS0246	The type or namespace name 'ActionExtraction' could not be found (are you missing a using directive or an assembly reference?)	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	1074	Active
+Error	CS0246	The type or namespace name 'ActionExtraction' could not be found (are you missing a using directive or an assembly reference?)	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	2188	Active
+Error	CS0246	The type or namespace name 'ActionDelta' could not be found (are you missing a using directive or an assembly reference?)	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	2291	Active
+Warning		The referenced component 'Microsoft.SharePoint.Client.Runtime' could not be found.	FastPMHelperAddin			
+Warning		The referenced component 'Microsoft.SharePoint.Client' could not be found.	FastPMHelperAddin			
+Error	CS0029	Cannot implicitly convert type 'System.Collections.Generic.List<FastPMHelperAddin.Services.LLMExtractionResult>' to 'System.Collections.Generic.List<ActionExtraction>'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml.cs	1077	Active

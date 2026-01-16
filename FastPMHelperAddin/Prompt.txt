@@ -1,1 +1,68 @@
-﻿Change reopen to blue also.  On inline editing, if no action is selected it starts off not allowing selection of update, create, reopen as epected.  However when I toggle on create new, it then allows pressing reopen and close and if I press them it says select an action first.  It should just have them greyed out and not selectable.  Also if I go inline reply on an email with actions, at the start it actually only allows create new and update, it should allow all of them.  Again if I toggle one on, then all of them are available.
+﻿Context: I am refining the VSTO Sidebar UI to include subtle "Health Indicators" and a personalized configuration setting. Goal:
+
+Visuals: Add small, unobtrusive indicators near the "Linked Action" header to show if the task is Overdue (Red) or With Me (Yellow/Amber).
+
+Settings: Add a field at the bottom of the sidebar to define "My Name" for the assignment logic.
+
+Requirements:
+
+1. The Indicators (UI - XAML):
+
+Modify the "Linked Action" header section. It is currently likely a TextBlock. Wrap it or place a StackPanel next to it.
+
+Add two small circular indicators (Ellipses), size approx 8x8 or 10x10.
+
+Indicator 1 (Overdue): Fill = Red. Visibility = Hidden by default. Tooltip = "Action is Overdue".
+
+Indicator 2 (With Me): Fill = Amber/Gold. Visibility = Hidden by default. Tooltip = "Assigned to You".
+
+Design Note: These should be subtle. Maybe place them to the right of the header text with a small margin.
+
+2. The Settings (UI - XAML):
+
+At the very bottom of the sidebar (footer), add a simplified "Settings" section.
+
+Label: "My Name (for tracking):"
+
+TextBox: MyNameInput (Loads/Saves to Properties.Settings.Default.UserName).
+
+Behavior: When this text changes (on lost focus), trigger a refresh of the indicators immediately.
+
+3. The Logic (C# - UpdateHealthIndicators):
+
+Create a method UpdateHealthIndicators(ActionItem action) called whenever an action is loaded or updated.
+
+Overdue Check:
+
+If action.DueDate < DateTime.Today (Strictly past) AND action.Status == "Open", make the Red Dot visible.
+
+Assignment Check:
+
+Get the user's name from Settings, add a text box at bottom of side bar which saves, default Wally Cloud (e.g., "Wally Cloud").
+
+Split the user's name into parts ("Wally", "Cloud").
+
+Check if action.BallHolder contains the Full Name, OR the First Name, OR the Last Name (Case insensitive).
+
+If match found AND action.Status == "Open", make the Amber Dot visible.
+
+What I need from you:
+
+XAML Snippet: The updated Header section with the dots, and the Footer section with the Name input.
+
+C# Code:
+
+The logic to load/save the setting.
+
+The UpdateHealthIndicators method with the name-splitting logic.
+
+Integration: Where to call this method (e.g., inside UpdateSelection or LoadAction).
+
+Constraint:
+
+Use Visibility.Collapsed when not active so they don't take up space if everything is fine.
+
+Ensure the name matching is robust (e.g., if BallHolder is "Wally C", it should probably match "Wally").
+
+Design Thought: Why two dots?
+If you only have one indicator that changes color (Red for overdue, Yellow for you), you lose information. Often, the most critical tasks are the ones that are both with you and overdue. Two tiny dots side-by-side (🔴 🟡) tell the complete story at a glance.

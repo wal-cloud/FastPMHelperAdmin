@@ -313,6 +313,7 @@
     <Compile Include="Services\ActionGroupingService.cs" />
     <Compile Include="Services\AutoClassifierService.cs" />
     <Compile Include="Services\DirectEmailRetrievalService.cs" />
+    <Compile Include="Services\EmailCategoryService.cs" />
     <Compile Include="Services\GraphAuthService.cs" />
     <Compile Include="Services\GraphSharePointService.cs" />
     <Compile Include="Services\GoogleSheetsAuthService.cs" />

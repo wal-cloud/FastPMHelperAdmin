@@ -21,6 +21,7 @@ namespace FastPMHelperAddin.UI
         private AutoClassifierService _classifierService;
         private DirectEmailRetrievalService _emailRetrievalService;
         private ActionGroupingService _groupingService;
+        private EmailCategoryService _emailCategoryService;
 
         private List<ActionItem> _openActions;
         private Outlook.MailItem _currentMail;
@@ -92,6 +93,7 @@ namespace FastPMHelperAddin.UI
                 _classifierService = new AutoClassifierService();
                 _emailRetrievalService = new DirectEmailRetrievalService();
                 _groupingService = new ActionGroupingService();
+                _emailCategoryService = new EmailCategoryService();
 
                 System.Diagnostics.Debug.WriteLine("Services initialized successfully with Google Sheets");
             }
@@ -927,7 +929,17 @@ namespace FastPMHelperAddin.UI
                 string package = classification.SuggestedPackageID;
 
                 // Get LLM suggestions for Title, BallHolder, Description
-                var extraction = await _llmService.GetExtractionAsync(body, senderEmail, subject);
+                LLMExtractionResult extraction;
+                try
+                {
+                    extraction = await _llmService.GetExtractionAsync(body, senderEmail, subject);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"LLM extraction failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsLLMError(mail);
+                    throw;
+                }
 
                 bool shouldCreate = true;
                 string title = extraction.Title;
@@ -971,17 +983,29 @@ namespace FastPMHelperAddin.UI
                     DateTime emailDate = GetEmailDate(mail);
                     int dueDays = GetDefaultDueDays();
 
-                    await _googleSheetsService.CreateActionAsync(
-                        project,        // NEW parameter
-                        package,        // NEW parameter
-                        title,
-                        ballHolder,
-                        conversationId,
-                        emailReference,
-                        description,
-                        emailDate,
-                        dueDays
-                    );
+                    try
+                    {
+                        await _googleSheetsService.CreateActionAsync(
+                            project,        // NEW parameter
+                            package,        // NEW parameter
+                            title,
+                            ballHolder,
+                            conversationId,
+                            emailReference,
+                            description,
+                            emailDate,
+                            dueDays
+                        );
+
+                        // Tag email as tracked (fire-and-forget)
+                        _emailCategoryService.MarkEmailAsTracked(mail);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Google Sheets CreateAction failed: {ex.Message}");
+                        _emailCategoryService.MarkEmailAsSheetsError(mail);
+                        throw;
+                    }
 
                     SetStatus($"Created: {title}");
                     LoadActionsAsync();
@@ -1047,7 +1071,17 @@ namespace FastPMHelperAddin.UI
 
                 // Call LLM to extract MULTIPLE actions
                 SetStatus("Analyzing email for multiple actions...");
-                var extractions = await _llmService.GetMultipleExtractionsAsync(body, senderEmail, subject);
+                List<LLMExtractionResult> extractions;
+                try
+                {
+                    extractions = await _llmService.GetMultipleExtractionsAsync(body, senderEmail, subject);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"LLM multiple extractions failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsLLMError(mail);
+                    throw;
+                }
 
                 if (extractions == null || extractions.Count == 0)
                 {
@@ -1132,6 +1166,9 @@ namespace FastPMHelperAddin.UI
                             defaultDueDays
                         );
 
+                        // Tag email as tracked after each action creation (fire-and-forget)
+                        _emailCategoryService.MarkEmailAsTracked(mail);
+
                         System.Diagnostics.Debug.WriteLine($"Created action {actionNumber}: ID={newActionId}, Title={finalTitle}");
                         successCount++;
                         createdTitles.Add(finalTitle);
@@ -1139,6 +1176,9 @@ namespace FastPMHelperAddin.UI
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"Error creating action {actionNumber}: {ex.Message}");
+                        // Could be LLM error or Sheets error - mark both to ensure visibility
+                        _emailCategoryService.MarkEmailAsLLMError(mail);
+                        _emailCategoryService.MarkEmailAsSheetsError(mail);
                         failedCount++;
                     }
                 }
@@ -1415,14 +1455,26 @@ namespace FastPMHelperAddin.UI
                     DateTime emailDate = GetEmailDate(mail);
                     int dueDays = GetDefaultDueDays();
 
-                    await _googleSheetsService.UpdateActionAsync(
-                        selectedAction.Id,
-                        emailReference,
-                        ballHolder,
-                        updateNote,
-                        emailDate,      // SentOn
-                        dueDays         // Due days offset
-                    );
+                    try
+                    {
+                        await _googleSheetsService.UpdateActionAsync(
+                            selectedAction.Id,
+                            emailReference,
+                            ballHolder,
+                            updateNote,
+                            emailDate,      // SentOn
+                            dueDays         // Due days offset
+                        );
+
+                        // Tag email as tracked (fire-and-forget)
+                        _emailCategoryService.MarkEmailAsTracked(mail);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Google Sheets UpdateAction failed: {ex.Message}");
+                        _emailCategoryService.MarkEmailAsSheetsError(mail);
+                        throw;
+                    }
 
                     SetStatus($"Updated: {selectedAction.Title}");
 
@@ -1523,18 +1575,31 @@ namespace FastPMHelperAddin.UI
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"LLM closure summary failed: {ex.Message}");
+                        _emailCategoryService.MarkEmailAsLLMError(_currentMail);
                         closureNote = "Action closed";
                     }
 
                     SetStatus("Closing action...");
 
                     // Close the action with LLM-generated note, email reference, and date
-                    await _googleSheetsService.CloseActionAsync(
-                        selectedAction.Id,
-                        closureNote,
-                        closingEmailReference,
-                        emailDate
-                    );
+                    try
+                    {
+                        await _googleSheetsService.CloseActionAsync(
+                            selectedAction.Id,
+                            closureNote,
+                            closingEmailReference,
+                            emailDate
+                        );
+
+                        // Tag email as tracked (fire-and-forget)
+                        _emailCategoryService.MarkEmailAsTracked(_currentMail);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Google Sheets CloseAction failed: {ex.Message}");
+                        _emailCategoryService.MarkEmailAsSheetsError(_currentMail);
+                        throw;
+                    }
 
                     SetStatus("Action closed successfully");
 
@@ -1606,7 +1671,19 @@ namespace FastPMHelperAddin.UI
                     DateTime emailDate = GetEmailDate(_currentMail);
                     int dueDays = GetDefaultDueDays();
 
-                    await _googleSheetsService.SetStatusAsync(selectedAction.Id, "Open", emailDate, dueDays);
+                    try
+                    {
+                        await _googleSheetsService.SetStatusAsync(selectedAction.Id, "Open", emailDate, dueDays);
+
+                        // Tag email as tracked (fire-and-forget)
+                        _emailCategoryService.MarkEmailAsTracked(_currentMail);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Google Sheets SetStatus failed: {ex.Message}");
+                        _emailCategoryService.MarkEmailAsSheetsError(_currentMail);
+                        throw;
+                    }
 
                     MessageBox.Show("Action reopened.", "Success",
                         MessageBoxButton.OK, MessageBoxImage.Information);
@@ -2062,6 +2139,10 @@ namespace FastPMHelperAddin.UI
                 if (prop != null)
                 {
                     prop.Delete();
+
+                    // Remove "Tracked" category when toggle is turned off (fire-and-forget)
+                    _emailCategoryService.RemoveTrackedCategory(mail);
+
                     mail.Save();
                     System.Diagnostics.Debug.WriteLine("Cleared deferred data");
                 }
@@ -2104,7 +2185,17 @@ namespace FastPMHelperAddin.UI
                 System.Diagnostics.Debug.WriteLine("Running LLM extraction...");
 
                 // Get LLM suggestions for Title, BallHolder, Description
-                var extraction = await _llmService.GetExtractionAsync(body, senderEmail, subject);
+                LLMExtractionResult extraction;
+                try
+                {
+                    extraction = await _llmService.GetExtractionAsync(body, senderEmail, subject);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"LLM extraction failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsLLMError(sentMail);
+                    throw;
+                }
 
                 System.Diagnostics.Debug.WriteLine($"LLM extraction: Title={extraction.Title}, BallHolder={extraction.BallHolder}");
 
@@ -2121,17 +2212,29 @@ namespace FastPMHelperAddin.UI
                 System.Diagnostics.Debug.WriteLine("Creating action in Google Sheets...");
 
                 // Create the action (no confirmation dialog in deferred mode)
-                await _googleSheetsService.CreateActionAsync(
-                    project,
-                    package,
-                    title,
-                    ballHolder,
-                    conversationId,
-                    emailReference,
-                    description,
-                    emailDate,
-                    dueDays
-                );
+                try
+                {
+                    await _googleSheetsService.CreateActionAsync(
+                        project,
+                        package,
+                        title,
+                        ballHolder,
+                        conversationId,
+                        emailReference,
+                        description,
+                        emailDate,
+                        dueDays
+                    );
+
+                    // Tag email as tracked (fire-and-forget)
+                    _emailCategoryService.MarkEmailAsTracked(sentMail);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Google Sheets CreateAction (deferred) failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsSheetsError(sentMail);
+                    throw;
+                }
 
                 System.Diagnostics.Debug.WriteLine($"=== Deferred create SUCCESS: {title} ===");
 
@@ -2185,7 +2288,17 @@ namespace FastPMHelperAddin.UI
                 System.Diagnostics.Debug.WriteLine("Running LLM delta analysis...");
 
                 // Get LLM delta
-                var delta = await _llmService.GetDeltaAsync(body, currentContext, currentBallHolder);
+                LLMDeltaResult delta;
+                try
+                {
+                    delta = await _llmService.GetDeltaAsync(body, currentContext, currentBallHolder);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"LLM delta failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsLLMError(sentMail);
+                    throw;
+                }
 
                 System.Diagnostics.Debug.WriteLine($"LLM delta: BallHolder={delta.NewBallHolder}, Summary={delta.UpdateSummary?.Substring(0, Math.Min(50, delta.UpdateSummary?.Length ?? 0))}");
 
@@ -2200,14 +2313,26 @@ namespace FastPMHelperAddin.UI
                 System.Diagnostics.Debug.WriteLine("Updating action in Google Sheets...");
 
                 // Update the action (no confirmation dialog in deferred mode)
-                await _googleSheetsService.UpdateActionAsync(
-                    selectedAction.Id,
-                    emailReference,
-                    ballHolder,
-                    updateNote,
-                    emailDate,
-                    dueDays
-                );
+                try
+                {
+                    await _googleSheetsService.UpdateActionAsync(
+                        selectedAction.Id,
+                        emailReference,
+                        ballHolder,
+                        updateNote,
+                        emailDate,
+                        dueDays
+                    );
+
+                    // Tag email as tracked (fire-and-forget)
+                    _emailCategoryService.MarkEmailAsTracked(sentMail);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Google Sheets UpdateAction (deferred) failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsSheetsError(sentMail);
+                    throw;
+                }
 
                 System.Diagnostics.Debug.WriteLine($"=== Deferred update SUCCESS: {selectedAction.Title} ===");
 
@@ -2297,18 +2422,31 @@ namespace FastPMHelperAddin.UI
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"LLM closure summary failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsLLMError(sentMail);
                     closureNote = "Action closed";
                 }
 
                 System.Diagnostics.Debug.WriteLine("Closing action in Google Sheets...");
 
                 // Close the action
-                await _googleSheetsService.CloseActionAsync(
-                    selectedAction.Id,
-                    closureNote,
-                    closingEmailReference,
-                    emailDate
-                );
+                try
+                {
+                    await _googleSheetsService.CloseActionAsync(
+                        selectedAction.Id,
+                        closureNote,
+                        closingEmailReference,
+                        emailDate
+                    );
+
+                    // Tag email as tracked (fire-and-forget)
+                    _emailCategoryService.MarkEmailAsTracked(sentMail);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Google Sheets CloseAction (deferred) failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsSheetsError(sentMail);
+                    throw;
+                }
 
                 System.Diagnostics.Debug.WriteLine($"=== Deferred close SUCCESS: {selectedAction.Title} ===");
                 SetStatus($"✓ Action closed: {selectedAction.Title}");
@@ -2356,7 +2494,19 @@ namespace FastPMHelperAddin.UI
 
                 System.Diagnostics.Debug.WriteLine("Reopening action in Google Sheets...");
 
-                await _googleSheetsService.SetStatusAsync(selectedAction.Id, "Open", emailDate, dueDays);
+                try
+                {
+                    await _googleSheetsService.SetStatusAsync(selectedAction.Id, "Open", emailDate, dueDays);
+
+                    // Tag email as tracked (fire-and-forget)
+                    _emailCategoryService.MarkEmailAsTracked(sentMail);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Google Sheets SetStatus (deferred) failed: {ex.Message}");
+                    _emailCategoryService.MarkEmailAsSheetsError(sentMail);
+                    throw;
+                }
 
                 System.Diagnostics.Debug.WriteLine($"=== Deferred reopen SUCCESS: {selectedAction.Title} ===");
                 SetStatus($"✓ Action reopened: {selectedAction.Title}");
