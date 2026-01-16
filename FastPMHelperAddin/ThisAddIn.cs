@@ -262,10 +262,17 @@ namespace FastPMHelperAddin
                         {
                             System.Diagnostics.Debug.WriteLine("  Regular sent/received email - normal mode");
 
+                            // PERFORMANCE FIX: Extract properties on COM thread before marshaling to UI thread
+                            // This avoids blocking the UI thread with synchronous Outlook PropertyAccessor calls
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            var emailProperties = EmailProperties.ExtractFrom(mail);
+                            sw.Stop();
+                            System.Diagnostics.Debug.WriteLine($"  Property extraction took {sw.ElapsedMilliseconds}ms on COM thread");
+
                             // Marshal to WPF UI thread (COM -> WPF threading)
                             _actionPane.Dispatcher.Invoke(() =>
                             {
-                                _actionPane.OnEmailSelected(mail);
+                                _actionPane.OnEmailSelected(emailProperties);
                             });
                         }
                     }
@@ -277,7 +284,7 @@ namespace FastPMHelperAddin
                 else
                 {
                     System.Diagnostics.Debug.WriteLine("  No selection - clearing pane");
-                    // No selection - clear the pane
+                    // No selection - clear the pane (pass null EmailProperties)
                     _actionPane.Dispatcher.Invoke(() =>
                     {
                         _actionPane.OnEmailSelected(null);

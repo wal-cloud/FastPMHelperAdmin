@@ -22,10 +22,13 @@ namespace FastPMHelperAddin.Services
         /// </summary>
         public List<RelatedEmailItem> RetrieveEmailsByReferences(List<string> emailReferences)
         {
+            var overallSw = System.Diagnostics.Stopwatch.StartNew();
             var results = new List<RelatedEmailItem>();
 
             if (emailReferences == null || emailReferences.Count == 0)
                 return results;
+
+            System.Diagnostics.Debug.WriteLine($"Starting retrieval of {emailReferences.Count} related emails...");
 
             foreach (var reference in emailReferences)
             {
@@ -59,6 +62,9 @@ namespace FastPMHelperAddin.Services
                     results.Add(CreateRelatedEmailItem(mail, internetMessageId));
                 }
             }
+
+            overallSw.Stop();
+            System.Diagnostics.Debug.WriteLine($"Retrieved {results.Count}/{emailReferences.Count} emails in {overallSw.ElapsedMilliseconds}ms");
 
             // Sort by ReceivedTime descending (newest first)
             return results.OrderByDescending(e => e.ReceivedTime).ToList();
@@ -134,10 +140,41 @@ namespace FastPMHelperAddin.Services
             if (folder == null)
                 return null;
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            int itemsSearched = 0;
+            const int MAX_ITEMS_TO_SEARCH = 500; // Limit search to prevent excessive delays
+            const int TIMEOUT_MS = 5000; // 5 second timeout
+
             try
             {
-                foreach (object item in folder.Items)
+                // PERFORMANCE NOTE: Outlook's Restrict() doesn't support filtering by InternetMessageId
+                // because PR_INTERNET_MESSAGE_ID is not a standard MAPI property for restrictions.
+                // We must enumerate items, but we limit the search to prevent excessive delays.
+
+                System.Diagnostics.Debug.WriteLine($"Searching folder '{folder.Name}' (contains {folder.Items.Count} items)");
+
+                // Sort by ReceivedTime descending to search newest items first
+                var items = folder.Items;
+                items.Sort("[ReceivedTime]", true); // true = descending
+
+                foreach (object item in items)
                 {
+                    // Check timeout
+                    if (sw.ElapsedMilliseconds > TIMEOUT_MS)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Search timeout after {sw.ElapsedMilliseconds}ms, searched {itemsSearched} items");
+                        break;
+                    }
+
+                    // Check item limit
+                    if (itemsSearched >= MAX_ITEMS_TO_SEARCH)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Search item limit reached ({MAX_ITEMS_TO_SEARCH} items), stopping");
+                        break;
+                    }
+
+                    itemsSearched++;
+
                     if (item is Outlook.MailItem mail)
                     {
                         try
@@ -148,7 +185,8 @@ namespace FastPMHelperAddin.Services
                                 string normalized = NormalizeMessageId(messageId);
                                 if (normalized == normalizedTargetId)
                                 {
-                                    System.Diagnostics.Debug.WriteLine($"Found via search: {mail.Subject}");
+                                    sw.Stop();
+                                    System.Diagnostics.Debug.WriteLine($"Found via search in {sw.ElapsedMilliseconds}ms after {itemsSearched} items: {mail.Subject}");
                                     return mail;
                                 }
                             }
@@ -156,8 +194,15 @@ namespace FastPMHelperAddin.Services
                         catch { }
                     }
                 }
+
+                sw.Stop();
+                System.Diagnostics.Debug.WriteLine($"Search completed in {sw.ElapsedMilliseconds}ms, {itemsSearched} items searched, not found");
             }
-            catch { }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                System.Diagnostics.Debug.WriteLine($"Search error after {sw.ElapsedMilliseconds}ms: {ex.Message}");
+            }
 
             return null;
         }

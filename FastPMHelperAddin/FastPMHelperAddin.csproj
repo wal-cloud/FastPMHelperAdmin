@@ -307,6 +307,7 @@
     <Compile Include="Models\ActionDropdownItem.cs" />
     <Compile Include="Models\ClassificationRule.cs" />
     <Compile Include="Models\DeferredActionData.cs" />
+    <Compile Include="Models\EmailProperties.cs" />
     <Compile Include="Models\RelatedEmailItem.cs" />
     <Compile Include="Services\LLMService.cs" />
     <Compile Include="Services\ActionMatchingService.cs" />

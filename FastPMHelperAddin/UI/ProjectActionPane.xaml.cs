@@ -25,6 +25,7 @@ namespace FastPMHelperAddin.UI
 
         private List<ActionItem> _openActions;
         private Outlook.MailItem _currentMail;
+        private EmailProperties _currentEmailProperties; // Cached email properties to avoid redundant COM calls
         private List<ActionDropdownItem> _dropdownItems;
         private bool _isExpanded = false;
         private string _currentPackageContext;
@@ -216,9 +217,11 @@ namespace FastPMHelperAddin.UI
 
         // Called from ThisAddIn when email selection changes
         // NOTE: ThisAddIn already wraps this call in Dispatcher.Invoke, so we don't need to do it again
-        public async void OnEmailSelected(Outlook.MailItem mail)
+        // PERFORMANCE: Now accepts pre-extracted EmailProperties to avoid blocking UI thread with COM calls
+        public async void OnEmailSelected(EmailProperties emailProps)
         {
-            System.Diagnostics.Debug.WriteLine($"OnEmailSelected called with: {mail?.Subject ?? "(null)"}");
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            System.Diagnostics.Debug.WriteLine($"OnEmailSelected called with: {emailProps?.Subject ?? "(null)"}");
 
             // NEW: If compose mode is active, exit it first (user switched to regular email)
             if (_isComposeMode)
@@ -227,10 +230,12 @@ namespace FastPMHelperAddin.UI
                 OnComposeItemDeactivated();
             }
 
-            _currentMail = mail;
+            // Cache both the properties and the MailItem reference
+            _currentEmailProperties = emailProps;
+            _currentMail = emailProps?.MailItem;
             _isExpanded = false;  // Reset expansion on email change
 
-            if (mail == null)
+            if (emailProps == null)
             {
                 SelectedEmailSubject.Text = "No email selected";
                 ActionComboBox.ItemsSource = null;
@@ -239,12 +244,15 @@ namespace FastPMHelperAddin.UI
                 return;
             }
 
-            SelectedEmailSubject.Text = mail.Subject ?? "(No Subject)";
+            SelectedEmailSubject.Text = emailProps.Subject ?? "(No Subject)";
 
-            // Extract email identifiers
-            string internetMessageId = GetInternetMessageId(mail);
-            string inReplyToId = GetInReplyToId(mail);
-            string conversationId = mail.ConversationID;
+            // Use pre-extracted identifiers (no PropertyAccessor calls needed!)
+            string internetMessageId = emailProps.InternetMessageId;
+            string inReplyToId = emailProps.InReplyToId;
+            string conversationId = emailProps.ConversationId;
+
+            sw.Stop();
+            System.Diagnostics.Debug.WriteLine($"  OnEmailSelected initial setup took {sw.ElapsedMilliseconds}ms on UI thread");
 
             // Initial grouping (before async classification)
             var initialGrouping = _groupingService.GroupActions(
@@ -271,12 +279,12 @@ namespace FastPMHelperAddin.UI
                 _currentProjectContext = null;
                 RefreshDropdown(initialGrouping);
 
-                // Start async classification
-                await ClassifyEmailContextAsync(mail);
+                // Start async classification (uses cached properties)
+                await ClassifyEmailContextAsync();
             }
 
             UpdateButtonStates();
-            System.Diagnostics.Debug.WriteLine($"Email selection updated: {mail.Subject}");
+            System.Diagnostics.Debug.WriteLine($"Email selection updated: {emailProps.Subject}");
         }
 
         private string GetInternetMessageId(Outlook.MailItem mail)
@@ -315,26 +323,36 @@ namespace FastPMHelperAddin.UI
             }
         }
 
-        private async Task ClassifyEmailContextAsync(Outlook.MailItem mail)
+        // PERFORMANCE: Now uses cached _currentEmailProperties instead of making redundant COM calls
+        private async Task ClassifyEmailContextAsync()
         {
+            if (_currentEmailProperties == null)
+                return;
+
             try
             {
-                string subject = mail.Subject ?? "";
-                string body = mail.Body ?? "";
-                string sender = mail.SenderEmailAddress ?? "";
-                string to = mail.To ?? "";
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+
+                // Use cached properties (already extracted on COM thread)
+                string subject = _currentEmailProperties.Subject ?? "";
+                string body = _currentEmailProperties.Body ?? "";
+                string sender = _currentEmailProperties.SenderEmailAddress ?? "";
+                string to = _currentEmailProperties.To ?? "";
 
                 // Run classification on background thread to avoid blocking UI
                 var classification = await Task.Run(() =>
                     _classifierService.Classify(subject, body, sender, to));
 
+                sw.Stop();
+                System.Diagnostics.Debug.WriteLine($"  Classification took {sw.ElapsedMilliseconds}ms on background thread");
+
                 _currentPackageContext = classification.SuggestedPackageID;
                 _currentProjectContext = classification.SuggestedProjectID;
 
-                // Re-group with context
-                string internetMessageId = GetInternetMessageId(mail);
-                string inReplyToId = GetInReplyToId(mail);
-                string conversationId = mail.ConversationID;
+                // Use cached identifiers (no redundant PropertyAccessor calls!)
+                string internetMessageId = _currentEmailProperties.InternetMessageId;
+                string inReplyToId = _currentEmailProperties.InReplyToId;
+                string conversationId = _currentEmailProperties.ConversationId;
 
                 var grouping = _groupingService.GroupActions(
                     _openActions,
@@ -513,10 +531,10 @@ namespace FastPMHelperAddin.UI
 
                 _isExpanded = true;
 
-                // Re-group and refresh
-                string internetMessageId = GetInternetMessageId(_currentMail);
-                string inReplyToId = GetInReplyToId(_currentMail);
-                string conversationId = _currentMail?.ConversationID;
+                // Re-group and refresh using cached properties
+                string internetMessageId = _currentEmailProperties?.InternetMessageId ?? "";
+                string inReplyToId = _currentEmailProperties?.InReplyToId ?? "";
+                string conversationId = _currentEmailProperties?.ConversationId ?? "";
 
                 var grouping = _groupingService.GroupActions(
                     _openActions,
@@ -734,9 +752,9 @@ namespace FastPMHelperAddin.UI
                 Dispatcher.Invoke(() =>
                 {
                     // Re-process current email if one is selected (will trigger grouping)
-                    if (_currentMail != null)
+                    if (_currentEmailProperties != null)
                     {
-                        OnEmailSelected(_currentMail);
+                        OnEmailSelected(_currentEmailProperties);
                     }
                     else
                     {
@@ -822,12 +840,12 @@ namespace FastPMHelperAddin.UI
                 // Refresh health indicators after save (status/assignment/due date may have changed)
                 Dispatcher.Invoke(() => UpdateHealthIndicators(selectedAction));
 
-                // Refresh ComboBox display - rebuild with grouping
-                if (_currentMail != null)
+                // Refresh ComboBox display - rebuild with grouping using cached properties
+                if (_currentEmailProperties != null)
                 {
-                    string internetMessageId = GetInternetMessageId(_currentMail);
-                    string inReplyToId = GetInReplyToId(_currentMail);
-                    string conversationId = _currentMail.ConversationID;
+                    string internetMessageId = _currentEmailProperties.InternetMessageId;
+                    string inReplyToId = _currentEmailProperties.InReplyToId;
+                    string conversationId = _currentEmailProperties.ConversationId;
                     var grouping = _groupingService.GroupActions(
                         _openActions,
                         internetMessageId,
