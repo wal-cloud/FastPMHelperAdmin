@@ -31,7 +31,38 @@ namespace FastPMHelperAddin
         private List<string> _dropdownLabels = new List<string>(); // Stores labels with section prefixes
         private int _linkedActionsCount = 0; // Track number of linked actions for auto-selection
 
+        // Static reference to the current ribbon instance for invalidation from InspectorWrapper
+        private static InspectorComposeRibbon _currentRibbonInstance;
+        private static readonly object _ribbonLock = new object();
+
         private const string DEFERRED_PROPERTY_NAME = "FastPMDeferredAction"; // Must match ProjectActionPane
+
+        /// <summary>
+        /// Invalidates the ribbon from outside (e.g., when a new InspectorWrapper is created).
+        /// This forces Outlook to re-query all ribbon callbacks including GetActionCount.
+        /// </summary>
+        public static void InvalidateCurrentRibbon()
+        {
+            lock (_ribbonLock)
+            {
+                if (_currentRibbonInstance?._ribbon != null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[{_currentRibbonInstance.InstanceID}] Static InvalidateCurrentRibbon called - forcing ribbon refresh");
+                    try
+                    {
+                        _currentRibbonInstance._ribbon.Invalidate();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error in InvalidateCurrentRibbon: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("InvalidateCurrentRibbon: No ribbon instance to invalidate");
+                }
+            }
+        }
 
         public InspectorComposeRibbon()
         {
@@ -66,6 +97,12 @@ namespace FastPMHelperAddin
             System.Diagnostics.Debug.WriteLine($"╚═══════════════════════════════════════════════════════════════════");
 
             _ribbon = ribbonUI;
+
+            // Set static reference for external invalidation
+            lock (_ribbonLock)
+            {
+                _currentRibbonInstance = this;
+            }
 
             try
             {
@@ -680,7 +717,7 @@ namespace FastPMHelperAddin
                 // Use the grouping results to populate dropdown
                 if (grouping != null)
                 {
-                    // Add Linked Actions
+                    // Add Linked Actions - no prefix (highest priority, shown first)
                     if (grouping.LinkedActions.Count > 0)
                     {
                         System.Diagnostics.Debug.WriteLine($"[{InstanceID}]   Linked actions:");
@@ -688,46 +725,50 @@ namespace FastPMHelperAddin
                         {
                             System.Diagnostics.Debug.WriteLine($"[{InstanceID}]     - ID {action.Id}: {action.Title}");
                             _dropdownActions.Add(action);
-                            _dropdownLabels.Add($"[LINKED] {action.Title}");
+                            _dropdownLabels.Add(action.Title);
                         }
                         _linkedActionsCount = grouping.LinkedActions.Count;
                     }
 
-                    // Add Package Actions
+                    // Add Package Actions - prefix: [PackageName]
                     if (grouping.PackageActions.Count > 0)
                     {
                         string packagePrefix = string.IsNullOrEmpty(grouping.DetectedPackage)
-                            ? "[PACKAGE]"
-                            : $"[PKG: {grouping.DetectedPackage}]";
+                            ? ""
+                            : $"[{grouping.DetectedPackage}]";
 
                         foreach (var action in grouping.PackageActions)
                         {
                             _dropdownActions.Add(action);
-                            _dropdownLabels.Add($"{packagePrefix} {action.Title}");
+                            _dropdownLabels.Add(string.IsNullOrEmpty(packagePrefix)
+                                ? action.Title
+                                : $"{packagePrefix} {action.Title}");
                         }
                     }
 
-                    // Add Project Actions
+                    // Add Project Actions - prefix: [ProjectName]
                     if (grouping.ProjectActions.Count > 0)
                     {
                         string projectPrefix = string.IsNullOrEmpty(grouping.DetectedProject)
-                            ? "[PROJECT]"
-                            : $"[PRJ: {grouping.DetectedProject}]";
+                            ? ""
+                            : $"[{grouping.DetectedProject}]";
 
                         foreach (var action in grouping.ProjectActions)
                         {
                             _dropdownActions.Add(action);
-                            _dropdownLabels.Add($"{projectPrefix} {action.Title}");
+                            _dropdownLabels.Add(string.IsNullOrEmpty(projectPrefix)
+                                ? action.Title
+                                : $"{projectPrefix} {action.Title}");
                         }
                     }
 
-                    // Add Other Actions
+                    // Add Other Actions - no prefix
                     if (grouping.OtherActions.Count > 0)
                     {
                         foreach (var action in grouping.OtherActions)
                         {
                             _dropdownActions.Add(action);
-                            _dropdownLabels.Add($"[OTHER] {action.Title}");
+                            _dropdownLabels.Add(action.Title);
                         }
                     }
                 }

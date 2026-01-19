@@ -47,6 +47,11 @@ namespace FastPMHelperAddin
             CaptureGroupingFromSidebar();
 
             System.Diagnostics.Debug.WriteLine($"InspectorWrapper created for Inspector {inspector.GetHashCode()}");
+
+            // CRITICAL: Force ribbon to refresh with new grouping
+            // This is needed because Outlook may reuse an existing ribbon instance
+            // and won't call GetActionCount unless we invalidate
+            InspectorComposeRibbon.InvalidateCurrentRibbon();
         }
 
         /// <summary>

@@ -3,55 +3,73 @@
   <ribbon>
     <tabs>
       <tab idMso="TabNewMailMessage">
-        <group id="ActionTrackingGroup" label="Action Tracking">
+        <group id="ActionTrackingGroup" label="Actions">
 
-          <dropDown id="ddActionSelector"
-                    label="Select Action"
-                    sizeString="WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
-                    getItemCount="GetActionCount"
-                    getItemLabel="GetActionLabel"
-                    getItemID="GetActionID"
-                    getSelectedItemIndex="GetSelectedActionIndex"
-                    onAction="OnActionSelected" />
+          <!-- Stack everything vertically -->
+          <box id="mainBox" boxStyle="vertical">
 
-          <toggleButton
-            id="btnCreateAction"
-            label="Create"
-            showImage="false"
-            getPressed="GetCreateActionPressed"
-            onAction="OnCreateActionToggle" />
+            <!-- Row 1: Create actions -->
+            <box id="createBox" boxStyle="horizontal">
+              <toggleButton
+                id="btnCreateAction"
+                label="Create"
+                size="normal"
+                showImage="false"
+                getPressed="GetCreateActionPressed"
+                onAction="OnCreateActionToggle" />
 
-          <toggleButton
-            id="btnCreateMultipleAction"
-            label="Create Multiple"
-            showImage="false"
-            getPressed="GetCreateMultipleActionPressed"
-            onAction="OnCreateMultipleActionToggle" />
+              <toggleButton
+                id="btnCreateMultipleAction"
+                label="Create Multiple"
+                size="normal"
+                showImage="false"
+                getPressed="GetCreateMultipleActionPressed"
+                onAction="OnCreateMultipleActionToggle" />
+            </box>
 
-          <toggleButton
-            id="btnUpdateAction"
-            label="Update"
-            showImage="false"
-            getPressed="GetUpdateActionPressed"
-            onAction="OnUpdateActionToggle" />
+            <!-- Row 2: Update/Close/Reopen - aligned with row 1 -->
+            <box id="updateBox" boxStyle="horizontal">
+              <toggleButton
+                id="btnUpdateAction"
+                label="Update"
+                size="normal"
+                showImage="false"
+                getPressed="GetUpdateActionPressed"
+                onAction="OnUpdateActionToggle" />
 
-          <toggleButton
-            id="btnCloseAction"
-            label="Close"
-            showImage="false"
-            getPressed="GetCloseActionPressed"
-            onAction="OnCloseActionToggle" />
+              <toggleButton
+                id="btnCloseAction"
+                label="Close"
+                size="normal"
+                showImage="false"
+                getPressed="GetCloseActionPressed"
+                onAction="OnCloseActionToggle" />
 
-          <toggleButton
-            id="btnReopenAction"
-            label="Reopen"
-            showImage="false"
-            getPressed="GetReopenActionPressed"
-            onAction="OnReopenActionToggle" />
+              <toggleButton
+                id="btnReopenAction"
+                label="Reopen"
+                size="normal"
+                showImage="false"
+                getPressed="GetReopenActionPressed"
+                onAction="OnReopenActionToggle" />
+            </box>
 
+            <!-- Row 3: Dropdown -->
+            <dropDown id="ddActionSelector"
+                      sizeString="WWWWWWWWWWWWWWWWWWWW"
+                      getItemCount="GetActionCount"
+                      getItemLabel="GetActionLabel"
+                      getItemID="GetActionID"
+                      getSelectedItemIndex="GetSelectedActionIndex"
+                      onAction="OnActionSelected" />
+
+          </box>
+
+          <!-- Status label - commented out but available for debugging
           <labelControl
             id="lblStatus"
             getLabel="GetStatusLabel" />
+          -->
 
         </group>
       </tab>
