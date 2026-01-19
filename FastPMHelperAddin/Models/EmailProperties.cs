@@ -38,11 +38,39 @@ namespace FastPMHelperAddin.Models
             {
                 MailItem = mail,
                 Subject = mail.Subject ?? "",
-                ConversationId = mail.ConversationID,
                 SenderEmailAddress = mail.SenderEmailAddress ?? "",
                 To = mail.To ?? "",
                 Sent = mail.Sent
             };
+
+            // Extract ConversationID - may need special handling for drafts
+            try
+            {
+                properties.ConversationId = mail.ConversationID;
+                System.Diagnostics.Debug.WriteLine($"EmailProperties.ExtractFrom: ConversationID = '{properties.ConversationId ?? "(null)"}'");
+
+                // For drafts, ConversationID might be null until saved
+                // If null, try to get it by saving the draft first (only for unsent emails)
+                if (string.IsNullOrEmpty(properties.ConversationId) && !mail.Sent)
+                {
+                    System.Diagnostics.Debug.WriteLine($"EmailProperties.ExtractFrom: ConversationID is null for draft, attempting save...");
+                    try
+                    {
+                        mail.Save();
+                        properties.ConversationId = mail.ConversationID;
+                        System.Diagnostics.Debug.WriteLine($"EmailProperties.ExtractFrom: After save, ConversationID = '{properties.ConversationId ?? "(null)"}'");
+                    }
+                    catch (Exception saveEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"EmailProperties.ExtractFrom: Save failed: {saveEx.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"EmailProperties.ExtractFrom: Error getting ConversationID: {ex.Message}");
+                properties.ConversationId = null;
+            }
 
             try
             {

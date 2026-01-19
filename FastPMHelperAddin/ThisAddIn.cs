@@ -20,6 +20,7 @@ namespace FastPMHelperAddin
         private ProjectActionPane _actionPane;
         private Outlook.Explorer _currentExplorer;
         private Outlook.Inspectors _inspectors;
+        private Dictionary<string, InspectorWrapper> _inspectorWrappers = new Dictionary<string, InspectorWrapper>();
 
         private const string RootPath = @"C:\MailPipeline";
         private const string TrackedEmailAccount = "wally.cloud@dynonobel.com";
@@ -361,15 +362,25 @@ namespace FastPMHelperAddin
                     System.Diagnostics.Debug.WriteLine($"  Inspector contains MailItem: {mail.Subject ?? "(No Subject)"}");
                     System.Diagnostics.Debug.WriteLine($"  Sent status: {mail.Sent}");
 
-                    // Only notify for unsent emails (compose mode)
+                    // Only process unsent emails (compose mode)
                     if (!mail.Sent)
                     {
-                        System.Diagnostics.Debug.WriteLine("  Detected compose window - notifying action pane");
+                        System.Diagnostics.Debug.WriteLine("  Detected compose window - creating InspectorWrapper");
 
-                        // Marshal to WPF UI thread
+                        // Create InspectorWrapper to manage this window with its Ribbon
+                        var wrapper = new InspectorWrapper(inspector);
+                        string key = GetInspectorKey(inspector);
+                        _inspectorWrappers[key] = wrapper;
+
+                        // CRITICAL FIX: Release Sidebar immediately (don't call OnComposeItemActivated!)
+                        // The Ribbon will now control this Inspector window
                         _actionPane.Dispatcher.Invoke(() =>
                         {
-                            _actionPane.OnComposeItemActivated(mail, inspector);
+                            if (_actionPane.IsComposeMode)
+                            {
+                                System.Diagnostics.Debug.WriteLine("  Sidebar was in compose mode - releasing to Ribbon");
+                                _actionPane.OnComposeItemDeactivated();
+                            }
                         });
                     }
                     else
@@ -414,6 +425,9 @@ namespace FastPMHelperAddin
                     _inspectors.NewInspector -= Inspectors_NewInspector;
                     System.Diagnostics.Debug.WriteLine("Inspectors.NewInspector event unhooked");
                 }
+
+                // Clean up InspectorWrapper dictionary
+                _inspectorWrappers.Clear();
 
                 System.Diagnostics.Debug.WriteLine("MailPipeline add-in shut down successfully");
             }
@@ -664,6 +678,70 @@ namespace FastPMHelperAddin
                 System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 // Note: We don't clear the deferred data on error, so user can retry manually
             }
+        }
+
+        #endregion
+
+        #region InspectorWrapper Management
+
+        /// <summary>
+        /// Generates a unique key for an Inspector instance
+        /// </summary>
+        private string GetInspectorKey(Outlook.Inspector inspector)
+        {
+            return inspector.GetHashCode().ToString();
+        }
+
+        /// <summary>
+        /// Retrieves the InspectorWrapper for a given Inspector
+        /// </summary>
+        public InspectorWrapper GetInspectorWrapper(Outlook.Inspector inspector)
+        {
+            string key = GetInspectorKey(inspector);
+            return _inspectorWrappers.ContainsKey(key) ? _inspectorWrappers[key] : null;
+        }
+
+        /// <summary>
+        /// Gets the action pane instance for ribbon access
+        /// </summary>
+        public UI.ProjectActionPane GetActionPane()
+        {
+            return _actionPane;
+        }
+
+        /// <summary>
+        /// Called by InspectorWrapper when an Inspector closes
+        /// </summary>
+        public void OnInspectorClose(Outlook.Inspector inspector)
+        {
+            try
+            {
+                string key = GetInspectorKey(inspector);
+                if (_inspectorWrappers.ContainsKey(key))
+                {
+                    _inspectorWrappers.Remove(key);
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper removed from dictionary: {key}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in OnInspectorClose: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region Ribbon Factory
+
+        /// <summary>
+        /// Creates the appropriate ribbon for the given context (Inspector or Explorer)
+        /// </summary>
+        protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
+        {
+            System.Diagnostics.Debug.WriteLine($"=== CreateRibbonExtensibilityObject CALLED at {DateTime.Now:HH:mm:ss.fff} ===");
+            var ribbon = new InspectorComposeRibbon();
+            System.Diagnostics.Debug.WriteLine($"    Created new ribbon instance: {ribbon.InstanceID}");
+            return ribbon;
         }
 
         #endregion

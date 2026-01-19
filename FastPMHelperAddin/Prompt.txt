@@ -1,90 +1,121 @@
-﻿This is the final major piece of the puzzle. You are effectively building a **"Mini-Dashboard"** inside the sidebar.
+﻿Now I have the full picture. Let me give you a clear answer.
 
-This transforms the sidebar from just a "Email Processor" into your "Project Command Center."
+## The Core Problem
 
-Here is the prompt to build the **Dashboard + Lookup** section.
+The review findings are **correct** and identify a fundamental flaw: **Outlook reuses a single ribbon instance for all Inspector windows**, and `Ribbon_Load` only fires once (for the first window). Any approach that caches state in `Ribbon_Load` will fail for subsequent windows.
 
----
+## How It's Actually Supposed to Be Done
 
-### Copy and Paste this into Claude:
+The **correct approach** in Outlook VSTO is **per-callback resolution using `IRibbonControl.Context`**. This is the standard pattern for multi-window ribbons.
 
-**Context:**
-I am building the "Command Center" section at the bottom of my VSTO Sidebar.
-**Goal:** I want a quick way to see **Overdue Actions** and **Actions Assigned to Me**, as well as the ability to manually **Lookup** an action by ID.
-**Current State:** I have the logic for "Overdue" (Red) and "With Me" (Yellow) which I use for visual indicators. I want to reuse this logic to populate two `ListView` controls.
+### The Key Insight
 
-**UI Layout Requirements (XAML):**
-Add a new vertical section at the bottom of the sidebar (below the linked action form):
+Every ribbon callback receives an `IRibbonControl control` parameter. For Inspector-hosted ribbons, `control.Context` **is** the `Outlook.Inspector` object. This is how you get the correct Inspector for each callback, regardless of which window triggered it.
 
-1. **Section 1: "Overdue Tasks" List**
-* **Control:** `DataGrid` (or `ListView` with GridView).
-* **Columns:** `Project` (Width=*), `Package` (Width=*), `Title` (Width=2*), `Ball Holder` (Width=*).
-* **Visibility:** **Collapsed** if there are 0 overdue tasks. Visible if > 0.
-* **Style:** Header text "Overdue" in **Red**. MaxHeight = 150px (Scrollable).
+The HANDOFF.md says `ribbonUI.Context` doesn't work — but that's different from `control.Context`. The `IRibbonControl` passed to callbacks has a `Context` property that should work.
 
+### The Correct Implementation
 
-2. **Section 2: "With Me" List**
-* **Control:** `DataGrid`.
-* **Columns:** Same as above.
-* **Visibility:** Always Visible (or collapsed if empty, your choice).
-* **Style:** Header text "With Me" in **Amber/Yellow**. MaxHeight = 150px (Scrollable).
+```csharp
+// DON'T cache _inspector or _wrapper at the class level for callbacks
+// DO resolve per-callback:
 
+private Outlook.MailItem GetCurrentMailItem(Office.IRibbonControl control)
+{
+    try
+    {
+        // Get the Inspector from the callback's context
+        var inspector = control.Context as Outlook.Inspector;
+        if (inspector != null && inspector.CurrentItem is Outlook.MailItem mailItem)
+        {
+            return mailItem;
+        }
+        
+        // Fallback only if Context doesn't work
+        var activeInspector = Globals.ThisAddIn.Application.ActiveInspector();
+        if (activeInspector?.CurrentItem is Outlook.MailItem activeMailItem)
+        {
+            return activeMailItem;
+        }
+        
+        return null;
+    }
+    catch (Exception ex)
+    {
+        System.Diagnostics.Debug.WriteLine($"Error: {ex.Message}");
+        return null;
+    }
+}
 
-3. **Section 3: "Manual Lookup" (The Search Bar)**
-* **UI:** `TextBox` (Placeholder "Action ID") + `Button` ("Go").
+// All callbacks need to pass 'control' through:
+public bool GetUpdateActionPressed(Office.IRibbonControl control)
+{
+    var mail = GetCurrentMailItem(control);  // Pass control!
+    if (mail == null) return false;
+    var data = LoadDeferredData(mail);
+    return data?.Mode == "Update";
+}
 
+public int GetSelectedActionIndex(Office.IRibbonControl control)
+{
+    var mail = GetCurrentMailItem(control);  // Pass control!
+    // ... rest of logic using mail
+}
+```
 
-4. **Section 4: "Dashboard Results" (Shared View)**
-* **Purpose:** When I select a row in *Overdue* OR *With Me*, OR use the *Search*, this area displays the details.
-* **Header:** TextBlock showing the selected Action Title.
-* **List:** The `RelatedEmails` DataGrid (Reuse the style from the upper section).
-* **Button:** "Open All Messages".
+### If `control.Context` Doesn't Work
 
+There's a possibility `control.Context` returns null or something unexpected in your specific VSTO setup. If that happens, you have two options:
 
+**Option A: Use `Application.ActiveInspector()` with careful invalidation**
 
-**Logic Requirements (C#):**
+This works if only one Inspector is ever active at a time:
+```csharp
+private Outlook.MailItem GetCurrentMailItem()
+{
+    var inspector = Globals.ThisAddIn.Application.ActiveInspector();
+    return inspector?.CurrentItem as Outlook.MailItem;
+}
+```
+Call `_ribbon.Invalidate()` on every Inspector activation (via `InspectorWrapper` events).
 
-**1. Data Loading (`RefreshDashboard`):**
+**Option B: Store state in InspectorWrapper, keyed by Inspector**
 
-* Create a method `RefreshDashboard()` called on Startup and after any Update.
-* Filter the cached `_allActions` list:
-* `OverdueList`: Where `DueDate < Today` AND `Status == Open`.
-* `WithMeList`: Where `BallHolder` matches `MyName` (Reuse the existing "Yellow Dot" logic).
+```csharp
+// In ThisAddIn or a static helper:
+private static Dictionary<Outlook.Inspector, InspectorWrapper> _wrappersByInspector;
 
+// In callbacks:
+private InspectorWrapper GetWrapperForControl(Office.IRibbonControl control)
+{
+    var inspector = control.Context as Outlook.Inspector 
+                    ?? Globals.ThisAddIn.Application.ActiveInspector();
+    
+    return Globals.ThisAddIn.GetInspectorWrapper(inspector);
+}
+```
 
-* Bind these collections to the UI.
-* Handle Visibility: Set `OverdueGrid.Visibility = Collapsed` if count is 0.
+## Is This Difficult in Outlook VSTO?
 
-**2. Interaction (`OnDashboardRowSelected`):**
+**Yes, this is a known pain point.** Outlook's ribbon architecture wasn't designed with multiple Inspector windows in mind as a first-class scenario. The key challenges:
 
-* When a user clicks a row in "Overdue" or "With Me":
-* Get the selected `ActionItem`.
-* Trigger the **Lookup Logic** (same as typing the ID manually).
-* Populate the "Dashboard Results" (Section 4) with the linked emails for that action.
+1. **Single ribbon instance** — Outlook creates one ribbon extensibility object, period.
+2. **`Ribbon_Load` only fires once** — Can't use it to set per-window state.
+3. **`control.Context` behavior varies** — May or may not return the Inspector depending on the control type and hosting context.
 
+The canonical solution is per-callback resolution using `control.Context`, but you need to test whether it actually returns the Inspector in your scenario.
 
-* *Note:* This does NOT change the "Linked Action" form at the top (which is bound to the currently selected Outlook email). This bottom section is for independent browsing.
+## Recommended Next Step
 
-**3. Search Logic (`Search_Click`):**
+**Test `control.Context` first:**
 
-* Same as previous: Find Action by ID  Populate Section 4.
-* *Duplicate Handling:* If ID is duplicate, show the Resolver Popup, then Populate Section 4.
+```csharp
+public bool GetUpdateActionPressed(Office.IRibbonControl control)
+{
+    System.Diagnostics.Debug.WriteLine($"control.Context type: {control.Context?.GetType().FullName ?? "null"}");
+    System.Diagnostics.Debug.WriteLine($"control.Context is Inspector: {control.Context is Outlook.Inspector}");
+    // ...
+}
+```
 
-**What I need from you:**
-
-1. **XAML:** The complete markup for this bottom "Dashboard" section.
-2. **C#:**
-* The `RefreshDashboard` method.
-* The SelectionChanged handlers for the two DataGrids.
-* The `LoadActionIntoDashboard(ActionItem action)` helper (which fetches emails and fills Section 4).
-
-
-
-**Constraint:**
-Ensure the "With Me" logic strictly follows the existing "My Name" settings match so the Yellow Dots and the "With Me" list represent the exact same data.
-
----
-
-### Why this architecture works
-
-By making the lists clickable, you don't just "see" that you are late; you click the red line, the emails load below, and you can immediately double-click an email to reply and fix the issue. It closes the loop instantly.
+If it's an Inspector, you're good — implement per-callback resolution. If it's null or something else, fall back to `ActiveInspector()` with aggressive invalidation on window focus changes.

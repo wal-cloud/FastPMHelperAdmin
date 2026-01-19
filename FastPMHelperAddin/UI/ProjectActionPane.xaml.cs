@@ -31,6 +31,13 @@ namespace FastPMHelperAddin.UI
         private string _currentPackageContext;
         private string _currentProjectContext;
 
+        // Public properties for ribbon access
+        public List<ActionItem> OpenActions => _openActions;
+        public ActionGroupingService GroupingService => _groupingService;
+        public EmailProperties CurrentEmailProperties => _currentEmailProperties;
+        public string CurrentPackageContext => _currentPackageContext;
+        public string CurrentProjectContext => _currentProjectContext;
+
         // Queue for processing actions
         private Queue<Func<Task>> _actionQueue = new Queue<Func<Task>>();
         private bool _isProcessingQueue = false;

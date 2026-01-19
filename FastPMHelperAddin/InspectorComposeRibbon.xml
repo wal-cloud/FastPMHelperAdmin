@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui" onLoad="Ribbon_Load">
+  <ribbon>
+    <tabs>
+      <tab idMso="TabNewMailMessage">
+        <group id="ActionTrackingGroup" label="Action Tracking">
+
+          <dropDown id="ddActionSelector"
+                    label="Select Action"
+                    sizeString="WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+                    getItemCount="GetActionCount"
+                    getItemLabel="GetActionLabel"
+                    getItemID="GetActionID"
+                    getSelectedItemIndex="GetSelectedActionIndex"
+                    onAction="OnActionSelected" />
+
+          <toggleButton
+            id="btnCreateAction"
+            label="Create"
+            showImage="false"
+            getPressed="GetCreateActionPressed"
+            onAction="OnCreateActionToggle" />
+
+          <toggleButton
+            id="btnCreateMultipleAction"
+            label="Create Multiple"
+            showImage="false"
+            getPressed="GetCreateMultipleActionPressed"
+            onAction="OnCreateMultipleActionToggle" />
+
+          <toggleButton
+            id="btnUpdateAction"
+            label="Update"
+            showImage="false"
+            getPressed="GetUpdateActionPressed"
+            onAction="OnUpdateActionToggle" />
+
+          <toggleButton
+            id="btnCloseAction"
+            label="Close"
+            showImage="false"
+            getPressed="GetCloseActionPressed"
+            onAction="OnCloseActionToggle" />
+
+          <toggleButton
+            id="btnReopenAction"
+            label="Reopen"
+            showImage="false"
+            getPressed="GetReopenActionPressed"
+            onAction="OnReopenActionToggle" />
+
+          <labelControl
+            id="lblStatus"
+            getLabel="GetStatusLabel" />
+
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

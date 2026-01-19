@@ -302,6 +302,8 @@
     can be found.
   -->
   <ItemGroup>
+    <Compile Include="InspectorComposeRibbon.cs" />
+    <Compile Include="InspectorWrapper.cs" />
     <Compile Include="MailExporter.cs" />
     <Compile Include="Models\ActionItem.cs" />
     <Compile Include="Models\ActionDropdownItem.cs" />
@@ -377,6 +379,7 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include=".env" />
+    <EmbeddedResource Include="InspectorComposeRibbon.xml" />
   </ItemGroup>
   <ItemGroup>
     <Page Include="UI\ProjectActionPane.xaml">

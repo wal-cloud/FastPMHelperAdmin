@@ -1,27 +1,116 @@
-﻿=== Explorer_SelectionChange EVENT FIRED === (Time: 14:26:25.757)
-  Current Explorer: 5541955, Stored Explorer: 5541955
+﻿=== Explorer_SelectionChange EVENT FIRED === (Time: 21:57:34.802)
+  Current Explorer: 32102252, Stored Explorer: 32102252
   Selection count: 1
   Selection type: __ComObject
-  Email selected: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  Email selected: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
   Sent status: True
   Regular sent/received email - normal mode
-OnEmailSelected called with: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+EmailProperties.ExtractFrom: ConversationID = '9C40A16E5BFC7746BE25F9C56258D187'
+  Property extraction took 28ms on COM thread
+OnEmailSelected called with: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  OnEmailSelected initial setup took 1ms on UI thread
 Health Indicators - Action: Provide Detailed Manufacturing Schedule, Status: Open, Overdue: False, WithMe: False
 Status: Loading 6 related messages...
-Email selection updated: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
-=== Explorer_SelectionChange EVENT FIRED === (Time: 14:26:25.786)
-  Current Explorer: 5541955, Stored Explorer: 5541955
+Starting retrieval of 6 related emails...
+Email selection updated: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+=== Explorer_SelectionChange EVENT FIRED === (Time: 21:57:34.863)
+  Current Explorer: 32102252, Stored Explorer: 32102252
   Selection count: 1
   Selection type: __ComObject
-  Email selected: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  Email selected: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
   Sent status: True
   Regular sent/received email - normal mode
-OnEmailSelected called with: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
-Email selection updated: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+EmailProperties.ExtractFrom: ConversationID = '9C40A16E5BFC7746BE25F9C56258D187'
+  Property extraction took 24ms on COM thread
+OnEmailSelected called with: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  OnEmailSelected initial setup took 1ms on UI thread
+Email selection updated: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
 Retrieved email via EntryID: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
 Retrieved email via EntryID: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
 Retrieved email via EntryID: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
 Retrieved email via EntryID: FW: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
 Retrieved email via EntryID: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
 Retrieved email via EntryID: FW: quick follow up
+Retrieved 6/6 emails in 1657ms
 Status: Loaded 6 related messages
+=== Explorer_InlineResponse EVENT FIRED === (Time: 21:57:41.496)
+  Inline compose started for: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  Entering compose mode (inline)
+OnComposeItemActivated: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  Inspector: Inline editing
+'outlook.exe' (CLR v4.0.30319: FastPMHelperAddin.vsto|vstolocal): Loaded 'C:\Users\wally\AppData\Local\assembly\dl3\3Y625D6P.5NV\KLE3EOK9.6A6\12df79db\0084e651_7b44dc01\System.Text.Json.dll'. Skipped loading symbols. Module is optimized and the debugger option 'Just My Code' is enabled.
+  Inline compose - no Inspector to hook (will exit via Explorer_SelectionChange)
+UpdateButtonVisualsForSchedule: _isComposeMode=True, DeferredMode=None
+  Compose mode - updating button states
+  Action selected: True
+UpdateButtonVisualsForSchedule: _isComposeMode=True, DeferredMode=None
+  Compose mode - updating button states
+  Action selected: True
+  Compose mode activated. Deferred data: None
+=== Explorer_SelectionChange EVENT FIRED === (Time: 21:57:42.347)
+  In inline compose mode - checking if user clicked away
+  ActiveInlineResponse still active - staying in compose mode
+'outlook.exe' (CLR v4.0.30319: DefaultDomain): Loaded 'C:\WINDOWS\Microsoft.Net\assembly\GAC_MSIL\UIAutomationProvider\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationProvider.dll'. Skipped loading symbols. Module is optimized and the debugger option 'Just My Code' is enabled.
+'outlook.exe' (CLR v4.0.30319: FastPMHelperAddin.vsto|vstolocal): Loaded 'C:\WINDOWS\Microsoft.Net\assembly\GAC_MSIL\Accessibility\v4.0_4.0.0.0__b03f5f7f11d50a3a\Accessibility.dll'. 
+The thread 0x94f8 has exited with code 0 (0x0).
+=== Inspectors_NewInspector EVENT FIRED ===
+  Inspector contains MailItem: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  Sent status: False
+  Detected compose window - creating InspectorWrapper
+InspectorWrapper created for Inspector 42925989
+  Sidebar was in compose mode - releasing to Ribbon
+OnComposeItemDeactivated
+UpdateButtonVisualsForSchedule: _isComposeMode=False, DeferredMode=None
+  Normal mode - resetting to defaults
+  Compose mode deactivated
+
+╔═══════════════════════════════════════════════════════════════════
+║ Ribbon_Load START: Ribbon-1 at 21:58:02.182
+╚═══════════════════════════════════════════════════════════════════
+[Ribbon-1] State reset complete
+[Ribbon-1] ⚠️ WARNING: No active Inspector
+
+╔═══════════════════════════════════════════════════════════════════
+║ Ribbon_Load END: Ribbon-1
+╚═══════════════════════════════════════════════════════════════════
+
+[Ribbon-1] GetActionCount CALLED
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', EntryID='(null)'
+EmailProperties.ExtractFrom: ConversationID = '(null)'
+EmailProperties.ExtractFrom: ConversationID is null for draft, attempting save...
+EmailProperties.ExtractFrom: After save, ConversationID = '(null)'
+[Ribbon-1] PopulateDropdownActions for email: 'RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]'
+[Ribbon-1]   InternetMessageId: ''
+[Ribbon-1]   InReplyToId: '<MN2PR17MB30386FA6FEF27B05610E2685B18DA@MN2PR17MB3038.namprd17.prod.outlook.com>'
+[Ribbon-1]   ConversationId: '(null)'
+[Ribbon-1]   Grouping result: 0 linked, 3 package, 19 project, 22 other
+[Ribbon-1] PopulateDropdownActions complete - 44 actions
+[Ribbon-1] ▶ GetSelectedActionIndex CALLED
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B3E70000'
+[Ribbon-1]   MailItem Subject: 'RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]'
+[Ribbon-1]   Loaded data: Mode='', ActionID=
+[Ribbon-1]   ✓ RETURNING -1 (no selection)
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B3E70000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B3E70000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B3E70000'
+[Ribbon-1] GetUpdateActionPressed: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', Mode='', returning False
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B3E70000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B3E70000'
+[Ribbon-1] GetStatusLabel CALLED
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B3E70000'
+[Ribbon-1] GetStatusLabel: Mode='', ActionID=
+[Ribbon-1] GetStatusLabel: No action scheduled
+=== Explorer_SelectionChange EVENT FIRED === (Time: 21:58:05.772)
+  Current Explorer: 32102252, Stored Explorer: 32102252
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  Sent status: True
+  Regular sent/received email - normal mode
+EmailProperties.ExtractFrom: ConversationID = '9C40A16E5BFC7746BE25F9C56258D187'
+  Property extraction took 25ms on COM thread
+OnEmailSelected called with: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+  OnEmailSelected initial setup took 1ms on UI thread
+Email selection updated: RE: DNMOR006045 - NA Converter Baskets - Purchase Order 4501758811 - Manufacturing Schedule [Alloy Eng]
+The thread 0xa1b8 has exited with code 0 (0x0).
+The thread 0x4ae8 has exited with code 0 (0x0).
