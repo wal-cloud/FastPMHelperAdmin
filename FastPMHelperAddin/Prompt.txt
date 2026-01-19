@@ -1,1 +1,90 @@
-﻿Once poped out, clicking other emails does not update the side bar state, it stays stuck in schedule mode.  Once we popout we should actually have new buttons on the popped out ribbon to be able to toggle the status for the email.
+﻿This is the final major piece of the puzzle. You are effectively building a **"Mini-Dashboard"** inside the sidebar.
+
+This transforms the sidebar from just a "Email Processor" into your "Project Command Center."
+
+Here is the prompt to build the **Dashboard + Lookup** section.
+
+---
+
+### Copy and Paste this into Claude:
+
+**Context:**
+I am building the "Command Center" section at the bottom of my VSTO Sidebar.
+**Goal:** I want a quick way to see **Overdue Actions** and **Actions Assigned to Me**, as well as the ability to manually **Lookup** an action by ID.
+**Current State:** I have the logic for "Overdue" (Red) and "With Me" (Yellow) which I use for visual indicators. I want to reuse this logic to populate two `ListView` controls.
+
+**UI Layout Requirements (XAML):**
+Add a new vertical section at the bottom of the sidebar (below the linked action form):
+
+1. **Section 1: "Overdue Tasks" List**
+* **Control:** `DataGrid` (or `ListView` with GridView).
+* **Columns:** `Project` (Width=*), `Package` (Width=*), `Title` (Width=2*), `Ball Holder` (Width=*).
+* **Visibility:** **Collapsed** if there are 0 overdue tasks. Visible if > 0.
+* **Style:** Header text "Overdue" in **Red**. MaxHeight = 150px (Scrollable).
+
+
+2. **Section 2: "With Me" List**
+* **Control:** `DataGrid`.
+* **Columns:** Same as above.
+* **Visibility:** Always Visible (or collapsed if empty, your choice).
+* **Style:** Header text "With Me" in **Amber/Yellow**. MaxHeight = 150px (Scrollable).
+
+
+3. **Section 3: "Manual Lookup" (The Search Bar)**
+* **UI:** `TextBox` (Placeholder "Action ID") + `Button` ("Go").
+
+
+4. **Section 4: "Dashboard Results" (Shared View)**
+* **Purpose:** When I select a row in *Overdue* OR *With Me*, OR use the *Search*, this area displays the details.
+* **Header:** TextBlock showing the selected Action Title.
+* **List:** The `RelatedEmails` DataGrid (Reuse the style from the upper section).
+* **Button:** "Open All Messages".
+
+
+
+**Logic Requirements (C#):**
+
+**1. Data Loading (`RefreshDashboard`):**
+
+* Create a method `RefreshDashboard()` called on Startup and after any Update.
+* Filter the cached `_allActions` list:
+* `OverdueList`: Where `DueDate < Today` AND `Status == Open`.
+* `WithMeList`: Where `BallHolder` matches `MyName` (Reuse the existing "Yellow Dot" logic).
+
+
+* Bind these collections to the UI.
+* Handle Visibility: Set `OverdueGrid.Visibility = Collapsed` if count is 0.
+
+**2. Interaction (`OnDashboardRowSelected`):**
+
+* When a user clicks a row in "Overdue" or "With Me":
+* Get the selected `ActionItem`.
+* Trigger the **Lookup Logic** (same as typing the ID manually).
+* Populate the "Dashboard Results" (Section 4) with the linked emails for that action.
+
+
+* *Note:* This does NOT change the "Linked Action" form at the top (which is bound to the currently selected Outlook email). This bottom section is for independent browsing.
+
+**3. Search Logic (`Search_Click`):**
+
+* Same as previous: Find Action by ID  Populate Section 4.
+* *Duplicate Handling:* If ID is duplicate, show the Resolver Popup, then Populate Section 4.
+
+**What I need from you:**
+
+1. **XAML:** The complete markup for this bottom "Dashboard" section.
+2. **C#:**
+* The `RefreshDashboard` method.
+* The SelectionChanged handlers for the two DataGrids.
+* The `LoadActionIntoDashboard(ActionItem action)` helper (which fetches emails and fills Section 4).
+
+
+
+**Constraint:**
+Ensure the "With Me" logic strictly follows the existing "My Name" settings match so the Yellow Dots and the "With Me" list represent the exact same data.
+
+---
+
+### Why this architecture works
+
+By making the lists clickable, you don't just "see" that you are late; you click the red line, the emails load below, and you can immediately double-click an email to reply and fix the issue. It closes the loop instantly.

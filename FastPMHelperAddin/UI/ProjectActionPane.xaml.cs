@@ -50,6 +50,11 @@ namespace FastPMHelperAddin.UI
         // User name for health indicator assignment checking
         private string _currentUserName;
 
+        // Dashboard state
+        private List<ActionItem> _overdueActions;
+        private List<ActionItem> _withMeActions;
+        private ActionItem _dashboardSelectedAction;
+
         // Compose mode fields for deferred action execution
         private bool _isComposeMode = false;
         private Outlook.MailItem _composeMail;
@@ -200,6 +205,7 @@ namespace FastPMHelperAddin.UI
                 Dispatcher.Invoke(() =>
                 {
                     RefreshActionComboBox();
+                    RefreshDashboard();
                 });
             }
             catch (Exception ex)
@@ -213,6 +219,67 @@ namespace FastPMHelperAddin.UI
         {
             ActionComboBox.ItemsSource = null;
             ActionComboBox.ItemsSource = _openActions;
+        }
+
+        private void RefreshDashboard()
+        {
+            if (_openActions == null || _openActions.Count == 0)
+            {
+                _overdueActions = new List<ActionItem>();
+                _withMeActions = new List<ActionItem>();
+                OverdueActionsComboBox.ItemsSource = null;
+                WithMeActionsComboBox.ItemsSource = null;
+                OverdueSection.Visibility = Visibility.Collapsed;
+                WithMeSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            // Filter overdue actions
+            _overdueActions = _openActions
+                .Where(a =>
+                {
+                    string status = a.Status ?? "";
+                    return !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                        && a.DueDate.HasValue
+                        && a.DueDate.Value.Date < DateTime.Today;
+                })
+                .OrderBy(a => a.DueDate)
+                .ToList();
+
+            // Filter with me actions (exclude overdue to avoid duplicates)
+            _withMeActions = _openActions
+                .Where(a =>
+                {
+                    string status = a.Status ?? "";
+                    bool isOverdue = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                        && a.DueDate.HasValue
+                        && a.DueDate.Value.Date < DateTime.Today;
+
+                    bool isWithMe = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(a.BallHolder)
+                        && IsAssignedToUser(a.BallHolder, _currentUserName);
+
+                    return isWithMe && !isOverdue;
+                })
+                .OrderBy(a => a.DueDate)
+                .ToList();
+
+            // Update labels with counts
+            OverdueLabel.Text = $"Overdue: {_overdueActions.Count}";
+            WithMeLabel.Text = $"With Me: {_withMeActions.Count}";
+
+            // Bind to UI
+            OverdueActionsComboBox.ItemsSource = _overdueActions;
+            WithMeActionsComboBox.ItemsSource = _withMeActions;
+
+            // Update visibility
+            OverdueSection.Visibility = _overdueActions.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            WithMeSection.Visibility = _withMeActions.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
         // Called from ThisAddIn when email selection changes
@@ -760,6 +827,8 @@ namespace FastPMHelperAddin.UI
                     {
                         ActionComboBox.ItemsSource = null;
                     }
+
+                    RefreshDashboard();
                 });
 
                 SetStatus($"Data refreshed successfully. Loaded {_classifierService.GetRuleCount()} rules and {_openActions.Count} open actions.");
@@ -2712,6 +2781,314 @@ namespace FastPMHelperAddin.UI
                 System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 SetStatus($"✗ Failed to reopen action: {ex.Message}");
                 throw;
+            }
+        }
+
+        #endregion
+
+        #region Command Center Dashboard
+
+        private void OverdueActionsComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var selectedAction = OverdueActionsComboBox.SelectedItem as ActionItem;
+            if (selectedAction != null)
+            {
+                WithMeActionsComboBox.SelectedItem = null;
+                LoadActionIntoDashboard(selectedAction);
+            }
+        }
+
+        private void WithMeActionsComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var selectedAction = WithMeActionsComboBox.SelectedItem as ActionItem;
+            if (selectedAction != null)
+            {
+                OverdueActionsComboBox.SelectedItem = null;
+                LoadActionIntoDashboard(selectedAction);
+            }
+        }
+
+        private void SearchActionButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string searchText = ActionIdSearchBox.Text?.Trim();
+
+                if (string.IsNullOrWhiteSpace(searchText) || searchText == "Action ID")
+                {
+                    MessageBox.Show("Please enter an Action ID to search.", "No Input",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                if (!int.TryParse(searchText, out int actionId))
+                {
+                    MessageBox.Show("Action ID must be a number.", "Invalid Input",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var matchingActions = _openActions?.Where(a => a.Id == actionId).ToList();
+
+                if (matchingActions == null || matchingActions.Count == 0)
+                {
+                    MessageBox.Show($"No action found with ID {actionId}.", "Not Found",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // Clear ComboBox selections since this is a manual search
+                OverdueActionsComboBox.SelectedItem = null;
+                WithMeActionsComboBox.SelectedItem = null;
+
+                if (matchingActions.Count > 1)
+                {
+                    var resolvedAction = ShowDuplicateActionResolver(matchingActions);
+                    if (resolvedAction != null)
+                    {
+                        LoadActionIntoDashboard(resolvedAction);
+                    }
+                }
+                else
+                {
+                    LoadActionIntoDashboard(matchingActions[0]);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error searching for action:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ActionIdSearchBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                SearchActionButton_Click(sender, e);
+            }
+        }
+
+        private void ActionIdSearchBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (ActionIdSearchBox.Text == "Action ID")
+            {
+                ActionIdSearchBox.Text = "";
+                ActionIdSearchBox.Foreground = (SolidColorBrush)FindResource("TextPrimary");
+            }
+        }
+
+        private void ActionIdSearchBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(ActionIdSearchBox.Text))
+            {
+                ActionIdSearchBox.Text = "Action ID";
+                ActionIdSearchBox.Foreground = (SolidColorBrush)FindResource("TextSecondary");
+            }
+        }
+
+        private async void LoadActionIntoDashboard(ActionItem action)
+        {
+            if (action == null) return;
+
+            try
+            {
+                _dashboardSelectedAction = action;
+
+                // Populate action details
+                DashboardProjectText.Text = action.Project ?? "";
+                DashboardPackageText.Text = action.Package ?? "";
+                DashboardTitleText.Text = action.Title ?? "";
+                DashboardBallHolderText.Text = action.BallHolder ?? "";
+
+                // Show results section
+                DashboardResultsSection.Visibility = Visibility.Visible;
+
+                // Load related emails
+                var emailReferences = action.ParseActiveMessageIds();
+
+                if (emailReferences.Count == 0)
+                {
+                    DashboardRelatedMessagesListView.ItemsSource = null;
+                    return;
+                }
+
+                SetStatus($"Loading {emailReferences.Count} related messages for Action {action.Id}...");
+
+                var relatedEmails = await Task.Run(() =>
+                    _emailRetrievalService.RetrieveEmailsByReferences(emailReferences));
+
+                Dispatcher.Invoke(() =>
+                {
+                    DashboardRelatedMessagesListView.ItemsSource = relatedEmails;
+                    SetStatus($"Dashboard: Loaded {relatedEmails.Count} messages for Action {action.Id}");
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading action into dashboard: {ex.Message}");
+                SetStatus("Error loading action details");
+            }
+        }
+
+        private ActionItem ShowDuplicateActionResolver(List<ActionItem> duplicates)
+        {
+            var dialog = new Window
+            {
+                Title = "Multiple Actions Found",
+                Width = 450,
+                Height = 300,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize
+            };
+
+            var stackPanel = new StackPanel { Margin = new Thickness(16) };
+
+            stackPanel.Children.Add(new TextBlock
+            {
+                Text = $"Found {duplicates.Count} actions with this ID. Please select one:",
+                Margin = new Thickness(0, 0, 0, 12),
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            var listView = new ListView
+            {
+                Height = 180,
+                ItemsSource = duplicates
+            };
+
+            listView.View = new GridView();
+            ((GridView)listView.View).Columns.Add(new GridViewColumn
+            {
+                Header = "Project",
+                DisplayMemberBinding = new System.Windows.Data.Binding("Project"),
+                Width = 80
+            });
+            ((GridView)listView.View).Columns.Add(new GridViewColumn
+            {
+                Header = "Title",
+                DisplayMemberBinding = new System.Windows.Data.Binding("Title"),
+                Width = 200
+            });
+            ((GridView)listView.View).Columns.Add(new GridViewColumn
+            {
+                Header = "Ball Holder",
+                DisplayMemberBinding = new System.Windows.Data.Binding("BallHolder"),
+                Width = 100
+            });
+
+            stackPanel.Children.Add(listView);
+
+            var buttonPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 12, 0, 0)
+            };
+
+            var selectButton = new Button
+            {
+                Content = "Select",
+                Width = 80,
+                Margin = new Thickness(0, 0, 8, 0),
+                Style = (Style)FindResource("ModernButtonPrimary")
+            };
+
+            var cancelButton = new Button
+            {
+                Content = "Cancel",
+                Width = 80,
+                Style = (Style)FindResource("ModernButtonSecondary")
+            };
+
+            ActionItem selectedAction = null;
+
+            selectButton.Click += (s, e) =>
+            {
+                if (listView.SelectedItem != null)
+                {
+                    selectedAction = listView.SelectedItem as ActionItem;
+                    dialog.DialogResult = true;
+                    dialog.Close();
+                }
+            };
+
+            cancelButton.Click += (s, e) =>
+            {
+                dialog.DialogResult = false;
+                dialog.Close();
+            };
+
+            buttonPanel.Children.Add(selectButton);
+            buttonPanel.Children.Add(cancelButton);
+            stackPanel.Children.Add(buttonPanel);
+
+            dialog.Content = stackPanel;
+            dialog.ShowDialog();
+
+            return selectedAction;
+        }
+
+        private void DashboardRelatedMessagesListView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            var selectedItem = DashboardRelatedMessagesListView.SelectedItem as RelatedEmailItem;
+            if (selectedItem?.MailItem != null)
+            {
+                try
+                {
+                    selectedItem.MailItem.Display(false);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error opening email: {ex.Message}");
+                    MessageBox.Show($"Error opening email:\n{ex.Message}", "Error",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void DashboardOpenAllButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (DashboardRelatedMessagesListView.ItemsSource == null)
+                    return;
+
+                var relatedEmails = DashboardRelatedMessagesListView.ItemsSource
+                    as System.Collections.Generic.List<RelatedEmailItem>;
+
+                if (relatedEmails == null || relatedEmails.Count == 0)
+                {
+                    MessageBox.Show("No related messages to open.", "Information",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                int opened = 0;
+                int failed = 0;
+
+                foreach (var email in relatedEmails)
+                {
+                    try
+                    {
+                        if (email.MailItem != null)
+                        {
+                            email.MailItem.Display(false);
+                            opened++;
+                        }
+                    }
+                    catch
+                    {
+                        failed++;
+                    }
+                }
+
+                SetStatus($"Opened {opened} messages" + (failed > 0 ? $" ({failed} failed)" : ""));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error opening messages:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

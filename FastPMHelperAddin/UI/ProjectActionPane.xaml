@@ -191,6 +191,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>  <!-- Row 6: Command Center Dashboard -->
         </Grid.RowDefinitions>
 
         <!-- Title with Refresh Button -->
@@ -612,5 +613,217 @@
                          ToolTip="Your name for assignment tracking (e.g., 'Wally Cloud')"/>
             </StackPanel>
         </StackPanel>
+
+        <!-- Command Center Dashboard -->
+        <Border x:Name="CommandCenterCard"
+                Grid.Row="6"
+                Style="{StaticResource CardStyle}"
+                Margin="0,12,0,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="600">
+                <StackPanel>
+                    <!-- Header -->
+                    <TextBlock Text="Command Center"
+                               FontWeight="SemiBold"
+                               FontSize="16"
+                               Foreground="{StaticResource TextPrimary}"
+                               Margin="0,0,0,12"/>
+
+                    <!-- Section 1: Overdue Tasks -->
+                    <StackPanel x:Name="OverdueSection" Margin="0,0,0,12">
+                        <TextBlock x:Name="OverdueLabel"
+                                   FontWeight="SemiBold"
+                                   FontSize="12"
+                                   Foreground="#D32F2F"
+                                   Margin="0,0,0,4"/>
+                        <ComboBox x:Name="OverdueActionsComboBox"
+                                  Style="{StaticResource ModernComboBox}"
+                                  DisplayMemberPath="Title"
+                                  SelectionChanged="OverdueActionsComboBox_SelectionChanged"/>
+                    </StackPanel>
+
+                    <!-- Section 2: With Me Tasks -->
+                    <StackPanel x:Name="WithMeSection" Margin="0,0,0,12">
+                        <TextBlock x:Name="WithMeLabel"
+                                   FontWeight="SemiBold"
+                                   FontSize="12"
+                                   Foreground="#FFA000"
+                                   Margin="0,0,0,4"/>
+                        <ComboBox x:Name="WithMeActionsComboBox"
+                                  Style="{StaticResource ModernComboBox}"
+                                  DisplayMemberPath="Title"
+                                  SelectionChanged="WithMeActionsComboBox_SelectionChanged"/>
+                    </StackPanel>
+
+                    <!-- Section 3: Manual Lookup -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock Text="Action Lookup"
+                                   FontWeight="SemiBold"
+                                   FontSize="12"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   Margin="0,0,0,4"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox x:Name="ActionIdSearchBox"
+                                     Grid.Column="0"
+                                     Style="{StaticResource ModernTextBox}"
+                                     Margin="0,0,8,0"
+                                     VerticalContentAlignment="Center"
+                                     GotFocus="ActionIdSearchBox_GotFocus"
+                                     LostFocus="ActionIdSearchBox_LostFocus"
+                                     KeyDown="ActionIdSearchBox_KeyDown"
+                                     Foreground="{StaticResource TextSecondary}"
+                                     Text="Action ID"/>
+
+                            <Button x:Name="SearchActionButton"
+                                    Grid.Column="1"
+                                    Content="Go"
+                                    Width="60"
+                                    Style="{StaticResource ModernButtonPrimary}"
+                                    Click="SearchActionButton_Click"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Section 4: Dashboard Results -->
+                    <Border x:Name="DashboardResultsSection"
+                            Visibility="Collapsed"
+                            Background="{StaticResource BackgroundInput}"
+                            BorderThickness="1"
+                            BorderBrush="{StaticResource BorderSubtle}"
+                            CornerRadius="4"
+                            Padding="12">
+                        <StackPanel>
+                            <TextBlock Text="Action Details"
+                                       FontWeight="SemiBold"
+                                       FontSize="13"
+                                       Foreground="{StaticResource TextPrimary}"
+                                       Margin="0,0,0,8"/>
+
+                            <!-- Details Grid (4 rows, 2 columns) -->
+                            <Grid Margin="0,0,0,12">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                           Text="Project:"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextSecondary}"
+                                           Margin="0,0,0,4"/>
+                                <TextBlock x:Name="DashboardProjectText"
+                                           Grid.Row="0" Grid.Column="1"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextPrimary}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,4"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0"
+                                           Text="Package:"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextSecondary}"
+                                           Margin="0,0,0,4"/>
+                                <TextBlock x:Name="DashboardPackageText"
+                                           Grid.Row="1" Grid.Column="1"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextPrimary}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,4"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0"
+                                           Text="Title:"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextSecondary}"
+                                           Margin="0,0,0,4"/>
+                                <TextBlock x:Name="DashboardTitleText"
+                                           Grid.Row="2" Grid.Column="1"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextPrimary}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,4"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0"
+                                           Text="Ball Holder:"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextSecondary}"/>
+                                <TextBlock x:Name="DashboardBallHolderText"
+                                           Grid.Row="3" Grid.Column="1"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextPrimary}"
+                                           TextWrapping="Wrap"/>
+                            </Grid>
+
+                            <!-- Related Messages Header -->
+                            <TextBlock Text="Related Messages"
+                                       FontWeight="SemiBold"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextSecondary}"
+                                       Margin="0,0,0,4"/>
+
+                            <!-- Dashboard Related Messages ListView -->
+                            <ListView x:Name="DashboardRelatedMessagesListView"
+                                      Height="150"
+                                      BorderThickness="1"
+                                      BorderBrush="{StaticResource BorderSubtle}"
+                                      Background="White"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      MouseDoubleClick="DashboardRelatedMessagesListView_MouseDoubleClick"
+                                      Margin="0,0,0,8">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="Date" Width="120">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding DateDisplay}"
+                                                               FontSize="11"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                        <GridViewColumn Header="From" Width="150">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding FromDisplay}"
+                                                               FontSize="11"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                        <GridViewColumn Header="Subject" Width="250">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding SubjectDisplay}"
+                                                               FontSize="11"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+
+                            <!-- Open All Messages Button -->
+                            <Button x:Name="DashboardOpenAllButton"
+                                    Content="Open All Messages"
+                                    Style="{StaticResource ModernButtonSecondary}"
+                                    Click="DashboardOpenAllButton_Click"
+                                    HorizontalAlignment="Stretch"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
     </Grid>
 </UserControl>
