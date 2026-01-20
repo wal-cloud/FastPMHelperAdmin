@@ -7,5 +7,11 @@
     <Setting Name="UserName" Type="System.String" Scope="User">
       <Value Profile="(Default)">Wally Cloud</Value>
     </Setting>
+    <Setting Name="DefaultDueDays" Type="System.Int32" Scope="User">
+      <Value Profile="(Default)">7</Value>
+    </Setting>
+    <Setting Name="ConfirmActions" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
   </Settings>
 </SettingsFile>

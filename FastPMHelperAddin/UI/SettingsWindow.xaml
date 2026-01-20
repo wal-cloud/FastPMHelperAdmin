@@ -1,0 +1,107 @@
+<Window x:Class="FastPMHelperAddin.UI.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings"
+        Width="400"
+        Height="250"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#F3F3F3">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="PrimaryAccent" Color="#0078D4"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#323130"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#605E5C"/>
+        <SolidColorBrush x:Key="BackgroundInput" Color="#F0F0F0"/>
+        <SolidColorBrush x:Key="BorderSubtle" Color="#EDEBE9"/>
+
+        <Style x:Key="ModernTextBox" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource BackgroundInput}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <Style x:Key="ModernButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource PrimaryAccent}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Confirm Actions Checkbox -->
+        <CheckBox x:Name="ConfirmActionsCheckBox"
+                  Grid.Row="0"
+                  Content="Confirm before creating/updating"
+                  IsChecked="False"
+                  Margin="0,0,0,16"
+                  FontSize="13"
+                  FontFamily="Segoe UI"
+                  Foreground="{StaticResource TextPrimary}"/>
+
+        <!-- Default Due Days -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,16">
+            <TextBlock Text="Default due in:"
+                       VerticalAlignment="Center"
+                       FontSize="13"
+                       FontFamily="Segoe UI"
+                       Foreground="{StaticResource TextPrimary}"
+                       Margin="0,0,8,0"/>
+            <TextBox x:Name="DefaultDueDaysTextBox"
+                     Text="7"
+                     Width="50"
+                     Style="{StaticResource ModernTextBox}"
+                     VerticalAlignment="Center"/>
+            <TextBlock Text="days"
+                       VerticalAlignment="Center"
+                       FontSize="13"
+                       FontFamily="Segoe UI"
+                       Foreground="{StaticResource TextPrimary}"
+                       Margin="8,0,0,0"/>
+        </StackPanel>
+
+        <!-- User Name Setting -->
+        <StackPanel Grid.Row="2" Orientation="Vertical" Margin="0,0,0,16">
+            <TextBlock Text="My Name (for tracking):"
+                       FontSize="13"
+                       FontFamily="Segoe UI"
+                       Foreground="{StaticResource TextPrimary}"
+                       Margin="0,0,0,4"/>
+            <TextBox x:Name="MyNameInput"
+                     Style="{StaticResource ModernTextBox}"
+                     ToolTip="Your name for assignment tracking (e.g., 'Wally Cloud')"/>
+        </StackPanel>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancel"
+                    Width="80"
+                    Margin="0,0,8,0"
+                    Click="CancelButton_Click"
+                    Background="#E1DFDD"
+                    Foreground="{StaticResource TextPrimary}"
+                    Style="{StaticResource ModernButton}"/>
+            <Button Content="Save"
+                    Width="80"
+                    Click="SaveButton_Click"
+                    Style="{StaticResource ModernButton}"/>
+        </StackPanel>
+    </Grid>
+</Window>

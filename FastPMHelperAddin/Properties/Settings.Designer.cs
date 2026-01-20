@@ -34,5 +34,29 @@ namespace FastPMHelperAddin.Properties {
                 this["UserName"] = value;
             }
         }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("7")]
+        public int DefaultDueDays {
+            get {
+                return ((int)(this["DefaultDueDays"]));
+            }
+            set {
+                this["DefaultDueDays"] = value;
+            }
+        }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ConfirmActions {
+            get {
+                return ((bool)(this["ConfirmActions"]));
+            }
+            set {
+                this["ConfirmActions"] = value;
+            }
+        }
     }
 }

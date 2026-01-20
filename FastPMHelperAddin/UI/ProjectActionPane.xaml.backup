@@ -296,16 +296,15 @@
                 <RowDefinition x:Name="OpenActionsRow" Height="*" MinHeight="100"/>
             </Grid.RowDefinitions>
 
-            <!-- Open Actions Section (Bottom) - Grid.Row="2" -->
-            <Border Grid.Row="2" x:Name="OpenActionsCard" Style="{StaticResource CardStyle}" Margin="0,6,0,0">
+            <!-- Linked Action Section (Top) -->
+            <Border Grid.Row="0" x:Name="ActionSelectionCard" Style="{StaticResource CardStyle}" Margin="0,0,0,6">
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Collapsible Header for Linked Action -->
+                    <!-- Collapsible Header for Open Actions -->
                     <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="OpenActionsHeader_Click" Cursor="Hand">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -548,8 +547,8 @@
                           Background="{StaticResource BorderSubtle}"
                           ShowsPreview="False"/>
 
-            <!-- Linked Action Section (Top) - Grid.Row="0" -->
-            <Border Grid.Row="0" x:Name="LinkedActionCard" Style="{StaticResource CardStyle}" Margin="0,0,0,6">
+            <!-- Linked Action Section (Bottom) -->
+            <Border Grid.Row="2" x:Name="ActionSelectionCard" Style="{StaticResource CardStyle}" Margin="0,6,0,0">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>

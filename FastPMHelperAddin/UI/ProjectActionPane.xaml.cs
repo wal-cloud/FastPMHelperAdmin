@@ -62,6 +62,14 @@ namespace FastPMHelperAddin.UI
         private List<ActionItem> _withMeActions;
         private ActionItem _dashboardSelectedAction;
 
+        // Collapse/Expand state
+        private bool _isOpenActionsCollapsed = false;
+        private bool _isLinkedActionCollapsed = false;
+
+        // Size memory for collapse/expand
+        private GridLength _savedLinkedActionHeight;
+        private GridLength _savedOpenActionsHeight;
+
         // Compose mode fields for deferred action execution
         private bool _isComposeMode = false;
         private Outlook.MailItem _composeMail;
@@ -90,9 +98,6 @@ namespace FastPMHelperAddin.UI
                 // Load user name from settings
                 _currentUserName = Properties.Settings.Default.UserName;
 
-                // Populate the TextBox
-                MyNameInput.Text = _currentUserName ?? "Wally Cloud";
-
                 // If setting was null/empty, set default
                 if (string.IsNullOrWhiteSpace(_currentUserName))
                 {
@@ -105,47 +110,10 @@ namespace FastPMHelperAddin.UI
             {
                 System.Diagnostics.Debug.WriteLine($"Error loading user settings: {ex.Message}");
                 _currentUserName = "Wally Cloud"; // Fallback
-                MyNameInput.Text = _currentUserName;
             }
         }
 
-        private void MyNameInput_LostFocus(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                string newName = MyNameInput.Text?.Trim() ?? "";
-
-                // If empty, revert to default
-                if (string.IsNullOrWhiteSpace(newName))
-                {
-                    newName = "Wally Cloud";
-                    MyNameInput.Text = newName;
-                }
-
-                // Only save and refresh if changed
-                if (newName != _currentUserName)
-                {
-                    _currentUserName = newName;
-                    Properties.Settings.Default.UserName = newName;
-                    Properties.Settings.Default.Save();
-
-                    // Refresh indicators if an action is currently displayed
-                    var selectedItem = ActionComboBox.SelectedItem as ActionDropdownItem;
-                    if (selectedItem?.Action != null)
-                    {
-                        UpdateHealthIndicators(selectedItem.Action);
-                    }
-
-                    System.Diagnostics.Debug.WriteLine($"User name updated to: {newName}");
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error saving user name: {ex.Message}");
-                MessageBox.Show($"Error saving user name: {ex.Message}", "Settings Error",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-        }
+        // MyNameInput is now in SettingsWindow, so handler removed from here
 
         private void InitializeServices()
         {
@@ -287,6 +255,12 @@ namespace FastPMHelperAddin.UI
             WithMeSection.Visibility = _withMeActions.Count > 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+
+            // Update collapsed summary if Open Actions is collapsed
+            if (_isOpenActionsCollapsed)
+            {
+                OpenActionsCollapsedSummary.Text = $"Overdue: {_overdueActions.Count}, With me: {_withMeActions.Count}";
+            }
         }
 
         // Called from ThisAddIn when email selection changes
@@ -311,14 +285,11 @@ namespace FastPMHelperAddin.UI
 
             if (emailProps == null)
             {
-                SelectedEmailSubject.Text = "No email selected";
                 ActionComboBox.ItemsSource = null;
                 ClearLinkedActionFields();
                 UpdateButtonStates();
                 return;
             }
-
-            SelectedEmailSubject.Text = emailProps.Subject ?? "(No Subject)";
 
             // Use pre-extracted identifiers (no PropertyAccessor calls needed!)
             string internetMessageId = emailProps.InternetMessageId;
@@ -853,6 +824,32 @@ namespace FastPMHelperAddin.UI
             }
         }
 
+        private void SettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var settingsWindow = new SettingsWindow();
+                bool? result = settingsWindow.ShowDialog();
+
+                if (result == true)
+                {
+                    // Settings were saved, reload current user name
+                    _currentUserName = Properties.Settings.Default.UserName;
+
+                    // Refresh dashboard in case WithMe indicators need updating
+                    RefreshDashboard();
+
+                    SetStatus("Settings saved successfully.");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Settings error: {ex.Message}");
+                MessageBox.Show($"Error opening settings:\n{ex.Message}", "Settings Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         private async void LinkedField_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
             if (e.Key == System.Windows.Input.Key.Enter)
@@ -1215,7 +1212,7 @@ namespace FastPMHelperAddin.UI
                 string description = extraction.Description;
 
                 // Check if confirmation is enabled
-                if (ConfirmActionsCheckBox.IsChecked == true)
+                if (Properties.Settings.Default.ConfirmActions)
                 {
                     SetStatus("Waiting for confirmation...");
 
@@ -1363,7 +1360,7 @@ namespace FastPMHelperAddin.UI
                 System.Diagnostics.Debug.WriteLine($"LLM extracted {extractions.Count} actions");
 
                 // Show confirmation dialog if enabled
-                bool confirmActions = ConfirmActionsCheckBox?.IsChecked == true;
+                bool confirmActions = Properties.Settings.Default.ConfirmActions;
 
                 int successCount = 0;
                 int failedCount = 0;
@@ -1695,7 +1692,7 @@ namespace FastPMHelperAddin.UI
                 string updateNote = delta.UpdateSummary;
 
                 // Check if confirmation is enabled
-                if (ConfirmActionsCheckBox.IsChecked == true)
+                if (Properties.Settings.Default.ConfirmActions)
                 {
                     SetStatus("Waiting for confirmation...");
 
@@ -2040,7 +2037,8 @@ namespace FastPMHelperAddin.UI
 
         private int GetDefaultDueDays()
         {
-            if (int.TryParse(DefaultDueDaysTextBox.Text, out int days) && days > 0)
+            int days = Properties.Settings.Default.DefaultDueDays;
+            if (days > 0)
                 return days;
 
             return 7; // Fallback default
@@ -3096,6 +3094,111 @@ namespace FastPMHelperAddin.UI
             {
                 MessageBox.Show($"Error opening messages:\n{ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        #endregion
+
+        #region Collapse/Expand Handlers
+
+        private void OpenActionsHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            // Cannot collapse if Linked Action is already collapsed
+            if (_isLinkedActionCollapsed && !_isOpenActionsCollapsed)
+            {
+                // Cannot close this one, so expand the other instead
+                ToggleLinkedActionCollapse();
+                return;
+            }
+
+            ToggleOpenActionsCollapse();
+        }
+
+        private void LinkedActionHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            // Cannot collapse if Open Actions is already collapsed
+            if (_isOpenActionsCollapsed && !_isLinkedActionCollapsed)
+            {
+                // Cannot close this one, so expand the other instead
+                ToggleOpenActionsCollapse();
+                return;
+            }
+
+            ToggleLinkedActionCollapse();
+        }
+
+        private void ToggleOpenActionsCollapse()
+        {
+            _isOpenActionsCollapsed = !_isOpenActionsCollapsed;
+
+            if (_isOpenActionsCollapsed)
+            {
+                // Save current height before collapsing
+                _savedOpenActionsHeight = OpenActionsRow.Height;
+
+                // Collapse: hide content, show summary, and resize to minimal height
+                OpenActionsContent.Visibility = Visibility.Collapsed;
+                OpenActionsExpandIcon.Text = "▶";
+
+                // Show collapsed summary
+                int overdueCount = _overdueActions?.Count ?? 0;
+                int withMeCount = _withMeActions?.Count ?? 0;
+                OpenActionsCollapsedSummary.Text = $"Overdue: {overdueCount}, With me: {withMeCount}";
+                OpenActionsCollapsedSummary.Visibility = Visibility.Visible;
+
+                // Resize to minimal height (just header)
+                OpenActionsRow.Height = new GridLength(60);
+            }
+            else
+            {
+                // Expand: show content, hide summary, restore previous height
+                OpenActionsContent.Visibility = Visibility.Visible;
+                OpenActionsExpandIcon.Text = "▼";
+                OpenActionsCollapsedSummary.Visibility = Visibility.Collapsed;
+
+                // Restore previous height (or default if not set)
+                if (_savedOpenActionsHeight.Value > 0)
+                {
+                    OpenActionsRow.Height = _savedOpenActionsHeight;
+                }
+                else
+                {
+                    OpenActionsRow.Height = new GridLength(1, GridUnitType.Star);
+                }
+            }
+        }
+
+        private void ToggleLinkedActionCollapse()
+        {
+            _isLinkedActionCollapsed = !_isLinkedActionCollapsed;
+
+            if (_isLinkedActionCollapsed)
+            {
+                // Save current height before collapsing
+                _savedLinkedActionHeight = LinkedActionRow.Height;
+
+                // Collapse: hide the details content and resize to minimal height
+                LinkedActionContent.Visibility = Visibility.Collapsed;
+                LinkedActionExpandIcon.Text = "▶";
+
+                // Resize to minimal height (just header + dropdown)
+                LinkedActionRow.Height = new GridLength(100);
+            }
+            else
+            {
+                // Expand: show content and restore previous height
+                LinkedActionContent.Visibility = Visibility.Visible;
+                LinkedActionExpandIcon.Text = "▼";
+
+                // Restore previous height (or default if not set)
+                if (_savedLinkedActionHeight.Value > 0)
+                {
+                    LinkedActionRow.Height = _savedLinkedActionHeight;
+                }
+                else
+                {
+                    LinkedActionRow.Height = new GridLength(1.5, GridUnitType.Star);
+                }
             }
         }
 

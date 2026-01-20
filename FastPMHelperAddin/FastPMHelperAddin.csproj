@@ -325,6 +325,9 @@
     <Compile Include="UI\ProjectActionPane.xaml.cs">
       <DependentUpon>ProjectActionPane.xaml</DependentUpon>
     </Compile>
+    <Compile Include="UI\SettingsWindow.xaml.cs">
+      <DependentUpon>SettingsWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="UI\ActionDropdownTemplateSelector.cs" />
     <Compile Include="UI\CreateActionDialog.xaml.cs">
       <DependentUpon>CreateActionDialog.xaml</DependentUpon>
@@ -383,6 +386,10 @@
   </ItemGroup>
   <ItemGroup>
     <Page Include="UI\ProjectActionPane.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="UI\SettingsWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
