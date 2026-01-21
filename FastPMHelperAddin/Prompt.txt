@@ -1,8 +1,150 @@
-﻿Simplify existing sidebar UI and make more space efficient:
-- Remove action row titles, these are pretty obvious from the context anyway.  Eg. Project, Package, Title, etc.  Just remove them completely.
-- Put project/package on the same line.  Auto share width based on content.  If both need all space Project should take it.
-- Also remove "related messages" label
-- Put open all messages button inline with LinkedAction, near the tick mark button.  Text: Open All {message icon}
-- Remove the "selected email" header and text, this was for testing and is unnessecary
-- Remove the settings and make a gear icon at the top of the side bar (near the refresh sheet button) that opens a window which has these settings in them
-- Project actions header is repeated twice, once in the title for the sidebar and once again as a header
+﻿This is an excellent summary of the situation. You have successfully isolated the issue by confirming that **disabling `Explorer_SelectionChange` fixes the bug**.
+
+This confirms the root cause: **"The Double Dip."**
+While you are typing an inline reply, Outlook fires `SelectionChange` events. Your code then tries to "Select" and "Read" the very draft you are currently editing. This creates a "Self-Lock" that persists when you hit Send.
+
+Here is the overview you requested, followed by the specific fix for `SelectionChange` that keeps your features enabled.
+
+### Part 1: What We Tried (And Failed)
+
+We spent a lot of time "chasing ghosts" because the lock was coming from a different direction than we thought.
+
+| Attempt | Theory | Why it failed |
+| --- | --- | --- |
+| **Submitted Check** | Block access if `mail.Submitted == true` | Inline drafts report `Submitted=False`, so the code ran anyway. |
+| **Release Sidebar** | Sidebar holding `_composeMail` caused the lock | `SelectionChange` was grabbing a *second* reference to the same email. |
+| **Ribbon Disable** | Ribbon UI callbacks caused the lock | The Ribbon wasn't running during Inline Compose. |
+| **Cooldown Timer** | Reading the "Parent" email after send locked the thread | The lock was established *during* compose, before the timer started. |
+| **Disable History** | Loading related emails locked the Conversation | The lock was on the *current* email, not the related ones. |
+
+### Part 2: The "Keepers" (Good Practice)
+
+If you rewrite this or clean it up, you should **definitely keep** these changes. They make your add-in faster and safer, even if they didn't fix this specific bug.
+
+1. **Stealth Mode (`PropertyAccessor`):**
+* **Keep it.** Reading `UserProperties` directly is "heavy" and can trigger Outlook security warnings or write-locks. `PropertyAccessor` is the professional way to read data silently.
+
+
+2. **The "Radioactive Outbox" Guard:**
+* **Keep it.** Always checking `folder.Name != "Outbox"` is a mandatory safety check for any Outlook add-in. Touching Outbox items is asking for trouble.
+
+
+3. **`Marshal.ReleaseComObject`:**
+* **Keep it.** In high-traffic events like `InlineResponse`, relying on the Garbage Collector is risky. Explicit release is safer.
+
+
+4. **The Cooldown Timer:**
+* **Keep it.** It protects you from the "Conversation Lock" race condition when the email moves from Drafts to Sent Items.
+
+
+
+### Part 3: The Final Fix (Logic Correction)
+
+Since we know `Explorer_SelectionChange` is the killer, we must prevent it from touching the email **while you are writing it**.
+
+Currently, your `SelectionChange` event runs even when you are in Inline Compose mode. It grabs the draft, extracts properties, and tries to update the sidebar *again*.
+
+**The Fix:**
+We will modify `Explorer_SelectionChange` to **exit immediately** if the Sidebar is already in Inline Compose mode. We don't need to process the selection because the Sidebar is already handling the active draft via `Explorer_InlineResponse`.
+
+**Open `ThisAddIn.cs` and replace `Explorer_SelectionChange` with this:**
+
+```csharp
+private void Explorer_SelectionChange()
+{
+    // System.Diagnostics.Debug.WriteLine($"=== Explorer_SelectionChange EVENT FIRED ===");
+
+    try 
+    {
+        // -----------------------------------------------------------------
+        // 1. COOLDOWN CHECK (Keep this Good Practice)
+        // -----------------------------------------------------------------
+        if (DateTime.Now < _ignoreSelectionUntil)
+        {
+            return;
+        }
+
+        // -----------------------------------------------------------------
+        // 2. THE FIX: IGNORE SELECTION DURING COMPOSE
+        // -----------------------------------------------------------------
+        // If we are already writing an email (Inline), the Sidebar is already 
+        // active and managing that draft. 
+        // If we let SelectionChange run now, it will grab a SECOND reference 
+        // to the draft, creating the "Death Grip" that blocks the Outbox.
+        // -----------------------------------------------------------------
+        if (_actionPane != null && _actionPane.IsComposeMode)
+        {
+            // Just check if we need to exit (user clicked away)
+            if (_currentExplorer.ActiveInlineResponse == null)
+            {
+                 System.Diagnostics.Debug.WriteLine("  ActiveInlineResponse is null - exiting compose mode");
+                 _actionPane.Dispatcher.Invoke(() => _actionPane.OnComposeItemDeactivated());
+                 
+                 // Activate Cooldown to protect the Send handoff
+                 _ignoreSelectionUntil = DateTime.Now.AddSeconds(3);
+            }
+            
+            // CRITICAL: Return here. Do NOT proceed to process the selection.
+            // We are either still composing (don't touch) or just finished (cooldown).
+            return; 
+        }
+
+        // -----------------------------------------------------------------
+        // 3. NORMAL SELECTION LOGIC (Only runs when NOT composing)
+        // -----------------------------------------------------------------
+        var explorer = _app.ActiveExplorer();
+        if (explorer != null && explorer.Selection.Count > 0)
+        {
+            var selection = explorer.Selection[1];
+            if (selection is Outlook.MailItem mail)
+            {
+                // RADIOACTIVE GUARD (Keep this Good Practice)
+                string folderName = "";
+                try { folderName = (mail.Parent as Outlook.MAPIFolder)?.Name; } catch {}
+                
+                if (folderName == "Outbox") 
+                {
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(mail);
+                    return;
+                }
+
+                // ... Process Normal Selection (Sent Items, Inbox, etc.) ...
+                if (!mail.Sent) 
+                {
+                     // This block likely shouldn't run if we handled IsComposeMode correctly above,
+                     // but leaving it as a fallback is fine.
+                }
+                else 
+                {
+                     // Extract properties for Sent Items viewing
+                     var emailProperties = EmailProperties.ExtractFrom(mail);
+                     _actionPane.Dispatcher.Invoke(() => _actionPane.OnEmailSelected(emailProperties));
+                }
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        System.Diagnostics.Debug.WriteLine($"Error: {ex.Message}");
+    }
+}
+
+```
+
+### Step 2: The "Silent Killer" Check
+
+You asked about the "Step 2" I mentioned earlier. Since you are reactivating features, you must check this one last thing in `ProjectActionPane.xaml.cs`:
+
+Look inside `OnComposeItemActivated`. **Ensure you are NOT subscribing to events.**
+
+* **BAD:** `mail.PropertyChange += Mail_PropertyChange;`
+* **BAD:** `((ItemEvents_10_Event)mail).Close += ...;`
+* **BAD:** `mail.Write += ...;`
+
+If you have *any* line starting with `mail.` and `+=`, you **must** comment it out. Event subscriptions create a hard reference that `Marshal.ReleaseComObject` cannot break.
+
+**Action Plan:**
+
+1. Apply the new `Explorer_SelectionChange` logic above.
+2. Uncomment the rest of your code (Sidebar, Ribbon, etc.) to get your features back.
+3. Build and Test. This should give you a working add-in *and* working delay rules.

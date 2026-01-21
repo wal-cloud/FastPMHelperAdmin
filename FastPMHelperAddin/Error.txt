@@ -1,16 +1,60 @@
-﻿Severity	Code	Description	Project	File	Line	Suppression State
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'OverdueSection'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	792	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'OverdueLabel'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	793	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'OverdueActionsComboBox'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	798	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'WithMeSection'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	805	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'WithMeLabel'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	806	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'WithMeActionsComboBox'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	811	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'ActionIdSearchBox'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	830	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'SearchActionButton'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	841	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardResultsSection'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	851	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardProjectText'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	884	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardPackageText'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	897	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardTitleText'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	910	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardBallHolderText'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	922	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardRelatedMessagesListView'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	937	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardOpenAllButton'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	978	Active
+﻿=== Explorer_SelectionChange EVENT FIRED === (Time: 12:46:37.214)
+  Current Explorer: 64268160, Stored Explorer: 64268160
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+  Sent status: True
+  Submitted status: False
+  [OUTBOX-DEBUG] Folder: Sent Items
+  Regular sent/received email - normal mode
+EmailProperties.ExtractFrom: ConversationID = 'DD3D22ED7D52B943939DF7C2713AB623'
+  Property extraction took 6ms on COM thread
+OnEmailSelected called with: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+  OnEmailSelected initial setup took 0ms on UI thread
+Health Indicators - Action: TQ-010 - Bellows clarifications, Status: Open, Overdue: False, WithMe: False
+Status: Loading 7 related messages...
+Starting retrieval of 7 related emails...
+Email selection updated: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+=== Explorer_SelectionChange EVENT FIRED === (Time: 12:46:37.266)
+  Current Explorer: 64268160, Stored Explorer: 64268160
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+  Sent status: True
+  Submitted status: False
+  [OUTBOX-DEBUG] Folder: Sent Items
+  Regular sent/received email - normal mode
+EmailProperties.ExtractFrom: ConversationID = 'DD3D22ED7D52B943939DF7C2713AB623'
+  Property extraction took 7ms on COM thread
+OnEmailSelected called with: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+  OnEmailSelected initial setup took 1ms on UI thread
+Email selection updated: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+Retrieved email via EntryID: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+Retrieved email via EntryID: FW: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+Retrieved email via EntryID: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+Retrieved email via EntryID: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+Retrieved email via EntryID: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+Retrieved email via EntryID: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+Retrieved email via EntryID: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+Retrieved 7/7 emails in 2158ms
+Status: Loaded 7 related messages
+=== Explorer_InlineResponse EVENT FIRED === (Time: 12:46:42.565)
+  Inline compose started (no draft access)
+OnInlineComposeActivated
+UpdateButtonVisualsForSchedule: _isComposeMode=True, DeferredMode=None
+  Compose mode - updating button states
+  Action selected: True
+UpdateButtonVisualsForSchedule: _isComposeMode=True, DeferredMode=None
+  Compose mode - updating button states
+  Action selected: True
+=== Explorer_SelectionChange EVENT FIRED === (Time: 12:46:43.000)
+  Current Explorer: 64268160, Stored Explorer: 64268160
+  In compose mode - ignoring selection change
+=== Application_ItemSend EVENT FIRED ===
+OnComposeItemDeactivated
+UpdateButtonVisualsForSchedule: _isComposeMode=False, DeferredMode=None
+  Normal mode - resetting to defaults
+  Compose mode deactivated
+  [COOLDOWN] Activated 2m delay-rule safety timer.
+ [COOLDOWN] Ignoring selection change (cooling down from Send)...
+ [COOLDOWN] Ignoring selection change (cooling down from Send)...

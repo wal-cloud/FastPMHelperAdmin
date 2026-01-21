@@ -1,523 +1,400 @@
-# HANDOFF DOCUMENT - Inspector Ribbon State Persistence Bug
+# HANDOFF DOCUMENT - Outbox Stuck Email Bug Investigation
 
-**Date**: 2026-01-19
+**Date**: 2026-01-21
 **Project**: FastPMHelperAddin (VSTO Outlook Add-in)
-**Feature**: Hybrid Architecture for Compose Window Action Tracking
-**Status**: 🔴 BLOCKED - Critical state persistence bug unresolved
+**Issue**: Emails get stuck in Outbox when 2-minute delay rule is enabled
+**Status**: INVESTIGATING - Root cause identified but not fully resolved
 
 ---
 
-## 1. FEATURE OVERVIEW
-
-### What We Built
-A **Hybrid Architecture** to fix a "sticky sidebar bug" where the Sidebar gets locked onto popped-out Inspector windows and can't track the main Explorer window anymore.
-
-### Architecture Design
-- **Main Window (Explorer)**: Sidebar handles Read Mode + Inline Compose
-- **Pop-out Windows (Inspectors)**: Custom Ribbon handles Pop-out Compose
-- **Critical Rule**: Sidebar NEVER controls pop-out windows - releases immediately when pop-out detected
-
-### Components Implemented
-1. **InspectorWrapper.cs** (NEW) - Manages individual Inspector window lifecycle
-2. **InspectorComposeRibbon.xml** (NEW) - Ribbon UI definition with action tracking controls
-3. **InspectorComposeRibbon.cs** (NEW) - Ribbon code-behind with UserProperty persistence
-4. **ThisAddIn.cs** (MODIFIED) - Added wrapper dictionary and sidebar release logic
-5. **ProjectActionPane.xaml.cs** (MODIFIED) - Exposed public properties for ribbon access
-6. **FastPMHelperAddin.csproj** (MODIFIED) - Added compile and embedded resource entries
-
-### Ribbon Features
-- **5 Toggle Buttons**: Create, Create Multiple, Update, Close, Reopen
-- **Action Dropdown**: Grouped actions (Linked, Package, Project, Other) with auto-selection
-- **Status Label**: Shows current scheduled action
-- **UserProperty Persistence**: Stores `DeferredActionData` on mail item using `"FastPMDeferredAction"` property
-- **Mutual Exclusivity**: Only one action can be scheduled at a time
-
----
-
-## 2. WHAT WORKS ✅
-
-### Successfully Implemented
-1. ✅ **Sidebar Release on Pop-out** - `ThisAddIn.Inspectors_NewInspector` correctly calls `OnComposeItemDeactivated()` to release sidebar
-2. ✅ **Inspector Lifecycle Management** - InspectorWrapper properly tracks and cleans up Inspector windows
-3. ✅ **Ribbon Visibility** - Ribbon appears in compose windows using `TabNewMailMessage` (NOT `TabMessage`)
-4. ✅ **Action Dropdown** - Successfully populates with grouped actions using callback pattern (`getItemCount`, `getItemLabel`, `getItemID`)
-5. ✅ **Toggle Buttons** - All 5 toggles functional, save/load from UserProperty correctly
-6. ✅ **Mutual Exclusivity** - Only one action mode can be scheduled at a time
-7. ✅ **UserProperty Persistence** - Data saves to mail item and persists across sessions
-8. ✅ **Action Execution** - When email is sent, deferred action executes correctly in `SentItems_ItemAdd`
-9. ✅ **First Window Behavior** - First compose window works perfectly:
-   - Auto-selects first linked action
-   - Toggle buttons work
-   - Action executes on send
-
----
-
-## 3. THE CRITICAL BUG 🔴
-
-### Problem Description
-**State (both dropdown selection AND toggle button state) persists across different compose windows.**
+## 1. PROBLEM DESCRIPTION
 
 ### User-Reported Behavior
-> "Great that worked the first time but then it got stuck on that. So it had that linked action, + I ticked update, hit send, action updated correctly. But then every new draft I created (no matter what the actual linked action was) had that original linked action AND update already preselected"
-
-### Reproduction Steps
-1. Open compose window #1 (Reply to Email A)
-   - ✅ Dropdown auto-selects first linked action (e.g., "Action 123")
-   - ✅ Click "Update" toggle - saves to UserProperty
-   - ✅ Send email - action executes correctly
-2. Open compose window #2 (Reply to Email B - completely different email)
-   - ❌ **BUG**: Dropdown still shows "Action 123" selected
-   - ❌ **BUG**: "Update" toggle still pressed
-   - 🤔 Expected: Clean state, auto-select first linked action for Email B
+When the user has an Outlook rule that delays all outbound emails by 2 minutes:
+- Emails get stuck in Outbox and never send
+- This happens **even when the user does NOT tag the email** with any deferred action (Create/Update/Close/Reopen)
+- The stuck email shows:
+  - **Date: NONE** (instead of today's date)
+  - **Not in italics** (Outlook treats it as "open" or being edited)
+- Normal emails that will send correctly show today's date and are in italics
 
 ### Impact
-Every new compose window inherits state from the previous window, making the feature unusable for multiple compose sessions.
+- Feature is unusable for users with delay rules
+- Could also affect users with no internet (emails temporarily in Outbox)
+- The add-in appears to be interfering with Outlook's delayed send mechanism
 
 ---
 
-## 4. DEBUGGING ATTEMPTS & FINDINGS
+## 2. ROOT CAUSE ANALYSIS
 
-### Attempt 1: State Reset in Ribbon_Load
-**Hypothesis**: Cached state carrying over
-**Action**: Added comprehensive state reset in `Ribbon_Load()`:
-```csharp
-_selectedAction = null;
-_currentDeferredData = null;
-_dropdownActions.Clear();
-_dropdownLabels.Clear();
-_linkedActionsCount = 0;
+### The Core Issue
+The add-in accesses `mail.UserProperties` on emails that Outlook reports as being in the "Outbox" folder. This access appears to interfere with Outlook's ability to process the delayed send.
+
+### Key Discovery: Folder Detection Anomaly
+When composing an **inline reply**, the draft's `mail.Parent` property returns **"Outbox"** as the folder name, even though:
+- `mail.Submitted = False` (not yet submitted for sending)
+- `mail.Sent = False` (not yet sent)
+- The user is still actively composing the email
+
+This is unexpected - inline drafts should typically be in "Drafts" or have no folder.
+
+### Debug Evidence
+From `Error.txt` logs:
 ```
-**Result**: ❌ FAILED - State still persists
-**User Feedback**: "It is still persisting both the action AND the state."
-
-### Attempt 2: Made All GetPressed Callbacks Stateless
-**Hypothesis**: Callbacks using stale cached data
-**Action**: Changed all `GetPressed` callbacks to load fresh from UserProperty:
-```csharp
-public bool GetUpdateActionPressed(Office.IRibbonControl control)
-{
-    var mail = GetCurrentMailItem();
-    if (mail == null) return false;
-    var data = LoadDeferredData(mail);
-    return data?.Mode == "Update";
-}
+=== Explorer_InlineResponse EVENT FIRED === (Time: 09:31:55.496)
+  Inline compose started for: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+  Submitted status: False
+  Entering compose mode (inline)
+OnComposeItemActivated: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+  Inspector: Inline editing
+[OUTBOX-DEBUG] Sidebar LoadDeferredData called:
+[OUTBOX-DEBUG]   Subject: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+[OUTBOX-DEBUG]   Folder: Outbox                          <-- ANOMALY: Draft shows as Outbox
+[OUTBOX-DEBUG]   State: Sent=False, Submitted=False
+[OUTBOX-DEBUG] WARNING: SIDEBAR ACCESSING OUTBOX ITEM!
 ```
-**Result**: ❌ FAILED - State still persists
-**User Feedback**: "It is still doing the same thing"
 
-### Attempt 3: Made GetSelectedActionIndex Stateless
-**Hypothesis**: Dropdown selection using cached `_selectedAction` field
-**Action**: Rewrote `GetSelectedActionIndex()` to prioritize fresh UserProperty data:
-```csharp
-public int GetSelectedActionIndex(Office.IRibbonControl control)
-{
-    var mail = GetCurrentMailItem();
-    if (mail != null)
-    {
-        var data = LoadDeferredData(mail);
-        if (data?.ActionID.HasValue == true)
-        {
-            // Find and return index from saved data
-            for (int i = 0; i < _dropdownActions.Count; i++)
-            {
-                if (_dropdownActions[i].Id == data.ActionID.Value)
-                    return i;
-            }
-        }
-    }
-    // Auto-select first linked action if no saved data
-    if (_linkedActionsCount > 0) return 0;
-    return -1;
-}
+After sending, the email shows in Outbox with `Submitted=True`:
 ```
-**Result**: ❌ FAILED - State still persists
+=== Explorer_SelectionChange EVENT FIRED === (Time: 09:32:10.761)
+  Email selected: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+  Sent status: False
+  Submitted status: True
+  [OUTBOX-DEBUG] Folder: Outbox
+  [OUTBOX-DEBUG] OUTBOX ITEM SELECTED!
+```
 
-### Attempt 4: Clear _selectedAction on Toggle Cancel
-**Hypothesis**: `_selectedAction` field not being cleared
-**Action**: Added `_selectedAction = null;` to all toggle cancel operations
-**Result**: ❌ FAILED - State still persists
+### Theory
+1. When composing inline, the draft is somehow associated with "Outbox" folder
+2. The add-in calls `LoadDeferredData()` which accesses `mail.UserProperties`
+3. This access (even read-only) may "touch" the email in a way that:
+   - Marks it as being edited
+   - Prevents Outlook's delay rule from processing it
+   - Causes the "NONE" date and non-italic display
 
-### Attempt 5: Added Comprehensive Debugging (IN PROGRESS)
-**Hypothesis**: Need to understand ribbon instance lifecycle
-**Action**: Added extensive logging to track:
-- Instance creation with unique IDs (`Ribbon-1`, `Ribbon-2`, etc.)
-- Which instance `Ribbon_Load()` is called on
-- Which instance callbacks are executed on
-- What data each instance sees
+---
+
+## 3. WHAT WE TRIED
+
+### Attempt 1: Skip items with `Submitted=True`
+**Location**: `ThisAddIn.cs:Explorer_SelectionChange()` and `Explorer_InlineResponse()`
 
 **Code Added**:
 ```csharp
-// InspectorComposeRibbon.cs
-private static int _instanceCounter = 0;
-private readonly int _instanceId;
-public string InstanceID => $"Ribbon-{_instanceId}";
-
-public InspectorComposeRibbon()
+// Skip if Submitted (truly in Outbox awaiting send)
+if (mail.Submitted)
 {
-    _instanceId = System.Threading.Interlocked.Increment(ref _instanceCounter);
-    System.Diagnostics.Debug.WriteLine($"*** InspectorComposeRibbon Constructor: {InstanceID} ***");
-}
-
-// ThisAddIn.cs
-protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
-{
-    System.Diagnostics.Debug.WriteLine($"=== CreateRibbonExtensibilityObject CALLED at {DateTime.Now:HH:mm:ss.fff} ===");
-    var ribbon = new InspectorComposeRibbon();
-    System.Diagnostics.Debug.WriteLine($"    Created new ribbon instance: {ribbon.InstanceID}");
-    return ribbon;
+    System.Diagnostics.Debug.WriteLine($"  [OUTBOX-DEBUG] SKIPPING - Submitted=True");
+    return;
 }
 ```
 
-**Status**: ⏳ NOT YET TESTED - User interrupted before rebuild/test
-**Next Step**: Rebuild and reproduce issue to see debug output
+**Result**: PARTIAL - This correctly skips emails that are already in Outbox awaiting send, but doesn't prevent the initial access during compose.
 
----
+### Attempt 2: Skip items in Outbox folder (REVERTED)
+**Location**: `ThisAddIn.cs`, `ProjectActionPane.xaml.cs`
 
-## 5. THEORIES & HYPOTHESES
-
-### Theory 1: Outlook Reuses Ribbon Instances (MOST LIKELY)
-**Evidence**:
-- All stateless attempts failed
-- State persists despite fresh UserProperty reads
-- Callbacks may be executing on wrong ribbon instance
-
-**What to Check**:
-- Does `CreateRibbonExtensibilityObject()` get called once or per window?
-- Are callbacks executing on the same instance ID across different windows?
-- Is Outlook caching ribbon state somewhere?
-
-### Theory 2: UserProperty Data Actually Persists
-**Evidence**:
-- `LoadDeferredData()` might be reading from a different mail item than expected
-- `GetCurrentMailItem()` might be returning wrong reference
-
-**What to Check**:
-- Does new compose window have existing `FastPMDeferredAction` property?
-- Is `mail.EntryID` different between windows?
-- Is `GetCurrentMailItem()` returning the active Inspector's mail or a stale reference?
-
-### Theory 3: Outlook Ribbon Cache
-**Evidence**:
-- Ribbon XML might be cached with state
-- `Invalidate()` might not fully refresh state
-
-**What to Check**:
-- Does calling `_ribbon.Invalidate()` actually force fresh callback execution?
-- Is there a global ribbon cache we need to clear?
-
----
-
-## 6. KEY FILES & LOCATIONS
-
-### New Files Created
-```
-FastPMHelperAddin/
-├── InspectorWrapper.cs                  (NEW - Inspector lifecycle manager)
-├── InspectorComposeRibbon.cs            (NEW - Ribbon code-behind, ~870 lines)
-└── InspectorComposeRibbon.xml           (NEW - Ribbon UI definition)
-```
-
-### Modified Files
-```
-FastPMHelperAddin/
-├── ThisAddIn.cs                         (MODIFIED - Lines 23, 346-401, 737-745)
-│   ├── Added: _inspectorWrappers dictionary
-│   ├── Modified: Inspectors_NewInspector (THE CRITICAL FIX)
-│   └── Added: CreateRibbonExtensibilityObject override
-├── UI/ProjectActionPane.xaml.cs         (MODIFIED - Lines 34-39)
-│   └── Added: Public properties for ribbon access
-└── FastPMHelperAddin.csproj             (MODIFIED - Lines ~305, ~381)
-    ├── Added: <Compile Include="InspectorWrapper.cs" />
-    ├── Added: <Compile Include="InspectorComposeRibbon.cs" />
-    └── Added: <EmbeddedResource Include="InspectorComposeRibbon.xml" />
-```
-
-### Critical Code Section - ThisAddIn.cs Lines 346-401
-This is the **PRIMARY FIX** for the sticky sidebar bug:
+**Code Added**:
 ```csharp
-private void Inspectors_NewInspector(Outlook.Inspector inspector)
+var folder = mail.Parent as Outlook.MAPIFolder;
+if (folder?.Name?.Equals("Outbox", StringComparison.OrdinalIgnoreCase) == true)
 {
-    if (inspector.CurrentItem is Outlook.MailItem mail && !mail.Sent)
+    return; // Skip Outbox items
+}
+```
+
+**Result**: FAILED - This broke the deferred action feature because:
+- Inline drafts report "Outbox" as their folder even when `Submitted=False`
+- Skipping these items prevents users from using the tagging buttons during inline compose
+- **REVERTED** - This approach is too aggressive
+
+### Attempt 3: Add comprehensive debug logging
+**Locations**:
+- `InspectorComposeRibbon.cs:LoadDeferredData()` - lines 995-1058
+- `InspectorComposeRibbon.cs:SaveDeferredData()` - lines 955-990
+- `InspectorComposeRibbon.cs:ClearDeferredData()` - lines 1063-1105
+- `ProjectActionPane.xaml.cs:LoadDeferredData()` - lines 2370-2420
+- `ThisAddIn.cs:Explorer_SelectionChange()` - lines 246-270
+- `ThisAddIn.cs:Explorer_InlineResponse()` - lines 322-338
+
+**Debug Output Format**:
+```
+[OUTBOX-DEBUG] LoadDeferredData called:
+[OUTBOX-DEBUG]   Subject: {subject}
+[OUTBOX-DEBUG]   Folder: {folderName}
+[OUTBOX-DEBUG]   State: Sent={sent}, Submitted={submitted}
+```
+
+**Result**: Successfully identified the folder detection anomaly (see Section 2)
+
+---
+
+## 4. CURRENT STATE OF CODE
+
+### Debug Logging Added (Still Active)
+The following debug logging is still in place for future investigation:
+
+**InspectorComposeRibbon.cs:LoadDeferredData()** (~line 1000):
+```csharp
+// DEBUG: Log folder and mail state to detect Outbox access
+string folderName = "(unknown)";
+string mailState = "(unknown)";
+try
+{
+    var folder = mail.Parent as Outlook.MAPIFolder;
+    folderName = folder?.Name ?? "(no folder)";
+    mailState = $"Sent={mail.Sent}, Submitted={mail.Submitted}";
+}
+catch { /* ignore folder access errors */ }
+
+System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG] LoadDeferredData called:");
+System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   Subject: {mail.Subject}");
+System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   Folder: {folderName}");
+System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   State: {mailState}");
+System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   StackTrace: {Environment.StackTrace}");
+
+// WARN if accessing Outbox item
+if (folderName.Equals("Outbox", StringComparison.OrdinalIgnoreCase))
+{
+    System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG] WARNING: ACCESSING OUTBOX ITEM!");
+}
+```
+
+**Similar logging in**:
+- `SaveDeferredData()` - warns on Outbox writes
+- `ClearDeferredData()` - warns on Outbox clears
+- `ProjectActionPane.xaml.cs:LoadDeferredData()` - sidebar version
+
+### Skip Logic Added (Still Active)
+**ThisAddIn.cs:Explorer_SelectionChange()** (~line 265):
+```csharp
+// Skip if Submitted (truly in Outbox awaiting send)
+if (mail.Submitted)
+{
+    System.Diagnostics.Debug.WriteLine($"  [OUTBOX-DEBUG] SKIPPING - Submitted=True");
+    return;
+}
+```
+
+**ThisAddIn.cs:Explorer_InlineResponse()** (~line 334):
+```csharp
+// Skip if already submitted (in Outbox)
+if (draft.Submitted)
+{
+    System.Diagnostics.Debug.WriteLine($"  [OUTBOX-DEBUG] Skipping - email already submitted");
+    return;
+}
+```
+
+---
+
+## 5. THEORIES FOR ROOT CAUSE
+
+### Theory 1: UserProperties Access Locks the Email
+Accessing `mail.UserProperties` (even read-only via `.Find()`) may:
+- Open the email for editing internally
+- Set a flag that prevents Outlook's rules from processing it
+- Conflict with the delay rule's internal locking mechanism
+
+**Evidence**: The email shows as non-italic (open/being edited) in Outbox
+
+### Theory 2: mail.Parent Access Causes Issues
+Just reading `mail.Parent` to get the folder might be enough to interfere with the email.
+
+**Test Needed**: Remove all `mail.Parent` access and see if issue persists
+
+### Theory 3: Timing/Race Condition
+The add-in accesses the email during the brief window when:
+1. User clicks Send
+2. Email moves to Outbox
+3. Delay rule timer starts
+4. Add-in's `SelectionChange` fires and accesses the email
+5. This access disrupts the delay rule
+
+**Evidence**: `SelectionChange` fires multiple times rapidly after sending
+
+### Theory 4: COM Reference Holding
+The add-in stores `_composeMail = mail` which holds a COM reference.
+Even after `_composeMail = null`, GC may not immediately release it.
+
+**Potential Fix**: Use `Marshal.ReleaseComObject(_composeMail)` explicitly
+
+---
+
+## 6. POTENTIAL SOLUTIONS TO EXPLORE
+
+### Solution 1: Delay UserProperties Access
+Don't access `UserProperties` until the user actually clicks a tagging button:
+```csharp
+// Current (problematic):
+public void OnComposeItemActivated(...)
+{
+    _currentDeferredData = LoadDeferredData(mail); // Immediate access
+}
+
+// Proposed:
+public void OnComposeItemActivated(...)
+{
+    _deferredDataLoaded = false; // Lazy load later
+}
+
+private DeferredActionData GetDeferredData()
+{
+    if (!_deferredDataLoaded)
     {
-        System.Diagnostics.Debug.WriteLine("  Detected compose window - creating InspectorWrapper");
-
-        // Create InspectorWrapper
-        var wrapper = new InspectorWrapper(inspector);
-        string key = GetInspectorKey(inspector);
-        _inspectorWrappers[key] = wrapper;
-
-        // CRITICAL: Release Sidebar immediately (don't call OnComposeItemActivated!)
-        _actionPane.Dispatcher.Invoke(() =>
-        {
-            if (_actionPane.IsComposeMode)
-            {
-                System.Diagnostics.Debug.WriteLine("  Sidebar was in compose mode - releasing to Ribbon");
-                _actionPane.OnComposeItemDeactivated();
-            }
-        });
+        _currentDeferredData = LoadDeferredData(_composeMail);
+        _deferredDataLoaded = true;
     }
+    return _currentDeferredData;
 }
 ```
 
-**Why This Works**: Sidebar immediately releases when Inspector opens, preventing it from getting "stuck" tracking the Inspector.
+### Solution 2: Use EntryID-based Detection Instead of Folder
+Instead of checking `mail.Parent` for folder, use `mail.EntryID` patterns or other properties.
 
-### Critical Code Section - InspectorComposeRibbon.cs
-**UserProperty Management** (Lines 752-831):
-- `SaveDeferredData()` - Serializes to JSON, stores in UserProperty
-- `LoadDeferredData()` - Reads UserProperty, deserializes JSON
-- `ClearDeferredData()` - Deletes UserProperty
-
-**Property Name**: `"FastPMDeferredAction"` (MUST match sidebar)
-
----
-
-## 7. TECHNICAL DETAILS
-
-### Build System
-**Project Type**: VSTO Add-in (.NET Framework) - Old-style .csproj
-
-**CRITICAL**: Must use full MSBuild path, NOT `dotnet build`:
-```powershell
-& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" "C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin.sln" /t:Rebuild /p:Configuration=Debug
-```
-
-### Ribbon XML Configuration
-**Tab**: `TabNewMailMessage` (NOT `TabMessage`)
-**Discovery**: User manually tested - `TabMessage` doesn't show, `TabNewMailMessage` works
-
-**Dropdown Pattern**: MUST use callbacks, NOT dynamic content
-```xml
-<dropDown id="ddActionSelector"
-          getItemCount="GetActionCount"
-          getItemLabel="GetActionLabel"
-          getItemID="GetActionID"
-          getSelectedItemIndex="GetSelectedActionIndex"
-          onAction="OnActionSelected" />
-```
-
-**Why**: Using `getContent` with dynamic XML broke ribbon completely - ribbon stopped loading.
-
-### COM Visibility
-**Required**: `[ComVisible(true)]` on `InspectorComposeRibbon` class
-**Required**: `IRibbonExtensibility` interface implementation
-
----
-
-## 8. ERRORS ENCOUNTERED & FIXED
-
-### Error 1: CS1061 - IRibbonUI.Context doesn't exist
-**Fix**: Changed to `Globals.ThisAddIn.Application.ActiveInspector()`
-
-### Error 2: Ribbon not appearing
-**Root Cause**: Used `TabMessage` instead of `TabNewMailMessage`
-**Fix**: User manually tested tabs, confirmed `TabNewMailMessage` works
-
-### Error 3: _mailItem was null when pressing buttons
-**Root Cause**: Cached reference became stale
-**Fix**: Created `GetCurrentMailItem()` helper that gets fresh reference each time
-
-### Error 4: Ribbon disappeared with nested box layout
-**Root Cause**: Nested `<box>` elements broke ribbon XML parsing
-**Fix**: Simplified to flat layout without nested containers
-
-### Error 5: Ribbon disappeared with dynamic menu
-**Root Cause**: Used `getContent="GetActionMenuContent"` for menu
-**Fix**: Switched to `dropDown` with callback pattern
-
-### Error 6: CS7036 - Missing packageContext parameter
-**Root Cause**: `GroupActions()` call missing required parameters
-**Fix**: Added `actionPane.CurrentPackageContext` and `CurrentProjectContext`
-
----
-
-## 9. NEXT STEPS FOR NEW SESSION
-
-### Immediate Action Required
-1. **Rebuild with debugging code** that was just added but not yet tested:
-```powershell
-& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" "C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin.sln" /t:Rebuild /p:Configuration=Debug
-```
-
-2. **Reproduce the bug** and capture debug output showing:
-   - How many times `CreateRibbonExtensibilityObject` is called
-   - Which ribbon instance IDs are created (`Ribbon-1`, `Ribbon-2`, etc.)
-   - Which instance `GetSelectedActionIndex` is called on for each window
-   - What `mail.Subject` and `mail.EntryID` each callback sees
-   - Whether `LoadDeferredData()` finds existing data or null
-
-3. **Analyze debug output** to determine:
-   - Is Outlook reusing the same ribbon instance for multiple windows?
-   - Are callbacks executing on the correct instance for each window?
-   - Is UserProperty data actually clean for new compose windows?
-
-### Potential Solutions Based on Debug Output
-
-**If Outlook Reuses Instances**:
-Store state in a static dictionary keyed by Inspector/MailItem ID:
+### Solution 3: Check for Delay Rule Specifically
+Detect if the email is subject to a delay rule and avoid accessing it:
 ```csharp
-private static Dictionary<string, RibbonState> _stateByMail = new Dictionary<string, RibbonState>();
-```
-
-**If GetCurrentMailItem Returns Wrong Reference**:
-Use `ribbonUI.Context` or pass Inspector reference through InspectorWrapper
-
-**If UserProperty Data Persists Unexpectedly**:
-Investigate why new compose windows have existing UserProperty - may need to clear on Inspector close
-
-### Alternative Approach to Consider
-**Store state in InspectorWrapper instead of Ribbon instance**:
-```csharp
-// InspectorWrapper.cs
-public class InspectorWrapper
+// Check if email has deferred delivery time set
+if (mail.DeferredDeliveryTime > DateTime.Now)
 {
-    public ActionItem SelectedAction { get; set; }
-    public DeferredActionData CurrentData { get; set; }
-    // Ribbon retrieves state from wrapper, not its own fields
+    // Skip - email is being delayed by a rule
+    return;
 }
 ```
 
-This ensures each Inspector has isolated state regardless of ribbon instance reuse.
+### Solution 4: Use Application.ItemSend Event
+Instead of detecting compose mode via `SelectionChange`, use:
+```csharp
+_app.ItemSend += Application_ItemSend;
+
+private void Application_ItemSend(object item, ref bool cancel)
+{
+    // Process deferred actions here, BEFORE email goes to Outbox
+}
+```
+
+### Solution 5: Move All Logic to SentItems_ItemAdd
+Only process emails AFTER they successfully send:
+- Remove all compose-time access
+- Only read/write UserProperties in `SentItems_ItemAdd`
+- Downside: Loses the ability to show UI state during compose
 
 ---
 
-## 10. VERIFICATION TESTS
+## 7. FILES MODIFIED IN THIS SESSION
 
-### Test 1: Inline Compose (Sidebar Mode) ✅
-**Status**: PASSING
-1. Select email in Explorer → Click "Reply" inline
-2. Sidebar enters compose mode, shows action buttons
-3. Click "Create New" in Sidebar
-4. Send email → Action executes
+### ThisAddIn.cs
+- Added `Submitted` status logging
+- Added folder detection logging
+- Added skip logic for `Submitted=True` items
+- Lines affected: ~246-320
 
-### Test 2: Pop-out Compose (Ribbon Mode) ✅
-**Status**: PASSING (first window only)
-1. Click "Reply" to open Inspector window
-2. Inspector shows Ribbon with "Action Tracking" group
-3. Sidebar returns to normal mode
-4. Click "Create Action" toggle → saves UserProperty
-5. Send email → Action executes
+### InspectorComposeRibbon.cs
+- Added Outbox debug logging to `LoadDeferredData()` (~line 995-1058)
+- Added Outbox debug logging to `SaveDeferredData()` (~line 955-990)
+- Added Outbox debug logging to `ClearDeferredData()` (~line 1063-1105)
 
-### Test 3: THE BUG FIX - Inline → Pop-out Transition ✅
-**Status**: PASSING
-1. Reply inline → Sidebar enters compose mode
-2. Schedule action via Sidebar
-3. Click "Pop Out"
-4. **VERIFIED**: Sidebar immediately releases (no longer stuck!)
-5. Inspector Ribbon shows scheduled action
-
-### Test 4: Multiple Pop-out Windows ❌
-**Status**: FAILING - This is the current bug
-1. Open Inspector for Email A → Schedule "Update" for Action 123
-2. Send Email A → Action executes ✅
-3. Open Inspector for Email B
-4. **BUG**: Shows Action 123 + "Update" toggle pressed
-5. **EXPECTED**: Clean state, auto-select first linked action for Email B
+### ProjectActionPane.xaml.cs
+- Added Outbox debug logging to `LoadDeferredData()` (~line 2370-2420)
 
 ---
 
-## 11. USER FEEDBACK HISTORY
+## 8. HOW TO TEST
 
-1. Initial request: "Implement the following plan: # Implementation Plan: Hybrid Architecture..."
-2. After sidebar fix: "Great and I deleted tab message and it still shows..."
-3. After dropdown added: "Great it is working now but drop down is not selectable"
-4. After grouping added: "it does not have the linked action selected and it does not group them..."
-5. **First bug report**: "Great that worked the first time but then it got stuck on that. So it had that linked action, + I ticked update, hit send, action updated correctly. But then every new draft I created (no matter what the actual linked action was) had that original linked action AND update already preselected"
-6. After stateless attempt #1: "It is still persisting both the action AND the state."
-7. After stateless attempt #2: "It is still doing the same thing"
-8. Final message before handoff: "I want to start a new session. Write a detailed handoff.md..."
+### Test Setup
+1. Enable a 2-minute delay rule on all outbound emails in Outlook
+2. Build the add-in:
+```powershell
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" "C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin.sln" /t:Rebuild /p:Configuration=Debug
+```
+3. Start Outlook
+4. Open `Error.txt` to monitor debug output
+
+### Test Case 1: Inline Reply (No Tagging)
+1. Select an email in Inbox
+2. Click Reply (inline)
+3. Type a response
+4. Click Send
+5. **Expected**: Email goes to Outbox, waits 2 min, sends
+6. **Bug Behavior**: Email stuck in Outbox with Date=NONE, not italic
+
+### Test Case 2: Inline Reply (With Tagging)
+1. Select an email in Inbox
+2. Click Reply (inline)
+3. Click "Create" button in sidebar
+4. Click Send
+5. **Expected**: Email goes to Outbox, waits 2 min, sends, action created
+6. **Bug Behavior**: Email stuck in Outbox
+
+### Test Case 3: Pop-out Reply
+1. Select an email in Inbox
+2. Click Reply, then Pop Out
+3. Type a response
+4. Click Send
+5. Check if behavior differs from inline
+
+### What to Look For in Debug Output
+- `[OUTBOX-DEBUG]` lines showing folder access
+- Whether `Folder: Outbox` appears for compose drafts
+- Stack traces showing where access originates
+- Timing of `SelectionChange` events relative to send
 
 ---
 
-## 12. IMPORTANT CONTEXT
-
-### UserProperty Naming
-- **Prompt.txt specified**: `"Deferred_Execution_Data"`
-- **Codebase uses**: `"FastPMDeferredAction"`
-- **Both Sidebar and Ribbon use**: `"FastPMDeferredAction"` (ensures shared state)
+## 9. RELATED CONTEXT
 
 ### DeferredActionData Model
 ```csharp
 public class DeferredActionData
 {
     public string Mode { get; set; }        // "Create", "Update", "Close", "Reopen", "CreateMultiple"
-    public int? ActionID { get; set; }      // Linked action ID (for Update/Close/Reopen)
+    public int? ActionID { get; set; }      // Linked action ID
     public string ManualTitle { get; set; }
     public string ManualAssignee { get; set; }
 }
 ```
 
-### ActionGroupingService
-Groups actions into 4 categories:
-- **Linked**: Actions directly linked to email's MessageID or InReplyTo
-- **Package**: Actions in detected package context
-- **Project**: Actions in detected project context
-- **Other**: All remaining open actions
+### UserProperty Name
+`"FastPMDeferredAction"` - stored in `mail.UserProperties`
 
-Dropdown labels use prefixes: `[LINKED]`, `[PKG: name]`, `[PRJ: name]`, `[OTHER]`
-
----
-
-## 13. KNOWLEDGE BASE
-
-### What Works in VSTO Ribbons
-✅ Callback pattern for dropdowns (`getItemCount`, `getItemLabel`)
-✅ `TabNewMailMessage` for compose windows
-✅ Flat layout without nested containers
-✅ `getPressed` callbacks for toggle state
-✅ `_ribbon.Invalidate()` to refresh controls
-
-### What Doesn't Work in VSTO Ribbons
-❌ `getContent` with dynamic XML content
-❌ Nested `<box>` elements
-❌ `TabMessage` for compose windows
-❌ `ribbonUI.Context` to get Inspector (doesn't exist)
-
-### Important Patterns
-- **Always use `GetCurrent*()` helpers** - never trust cached COM references
-- **Old-style .csproj** - must manually add `<Compile>` and `<EmbeddedResource>` entries
-- **MSBuild, not dotnet build** - VSTO projects require full MSBuild path
-- **COM cleanup** - must release COM objects in finally blocks
+### Execution Flow
+1. User toggles button (Create/Update/etc.) in compose mode
+2. `SaveDeferredData()` writes JSON to `mail.UserProperties["FastPMDeferredAction"]`
+3. User sends email
+4. Email arrives in Sent Items
+5. `SentItems_ItemAdd` event fires
+6. `LoadDeferredData()` reads the property
+7. `ExecuteDeferredActionAsync()` performs the action
+8. `ClearDeferredData()` removes the property
 
 ---
 
-## 14. DEBUG OUTPUT LOCATIONS
+## 10. KNOWN WORKING SCENARIOS
 
-**Primary**: `C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\Error.txt`
-
-**Key Debug Lines Added** (not yet captured in output):
-- `=== CreateRibbonExtensibilityObject CALLED at HH:mm:ss.fff ===`
-- `*** InspectorComposeRibbon Constructor: Ribbon-N ***`
-- `║ Ribbon_Load START: Ribbon-N at HH:mm:ss.fff ║`
-- `[Ribbon-N] ⚠️ FOUND EXISTING DEFERRED DATA:` (indicates UserProperty found)
-- `[Ribbon-N] ✓ No existing deferred data - CLEAN STATE` (indicates no UserProperty)
-- `[Ribbon-N] ▶ GetSelectedActionIndex CALLED`
-- `[Ribbon-N] GetUpdateActionPressed: Subject='...', Mode='...', returning TRUE/FALSE`
+- Add-in works correctly when delay rule is **disabled**
+- Pop-out compose windows work correctly (ribbon mode)
+- Deferred actions execute correctly when email successfully sends
+- Sidebar releases correctly when pop-out is detected
 
 ---
 
-## 15. SUCCESS CRITERIA
+## 11. BUILD INSTRUCTIONS
 
-The feature will be considered **COMPLETE** when:
+```powershell
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" "C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin.sln" /t:Rebuild /p:Configuration=Debug
+```
 
-✅ Sidebar releases immediately on pop-out (DONE)
-✅ Inspector Ribbon loads in compose windows (DONE)
-✅ Action dropdown shows grouped actions (DONE)
-✅ Toggle buttons save to UserProperty (DONE)
-✅ Actions execute on send (DONE)
-❌ **Each compose window has isolated state** (FAILING)
-❌ **No state carries over between different compose windows** (FAILING)
+**DO NOT USE** `dotnet build` - it fails with MSB4019 error.
 
 ---
 
-## 16. CONTACT & REFERENCES
+## 12. DEBUG OUTPUT LOCATION
 
-**Codebase**: `C:\Users\wally\source\repos\FastPMHelperAddin\`
-**Plan File**: `C:\Users\wally\.claude\plans\shimmering-scribbling-beaver.md`
-**Build Command**: See section 7 - Technical Details
-**Previous Session Transcript**: `C:\Users\wally\.claude\projects\C--Users-wally-source-repos-FastPMHelperAddin\5b82acb4-e4d8-4b04-96ce-892996dc9641.jsonl`
+`C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\Error.txt`
 
 ---
 
 **End of Handoff Document**
-**Priority**: 🔴 HIGH - Feature unusable until state persistence bug resolved
-**Estimated Remaining Work**: 2-4 hours debugging + fix implementation
+**Priority**: HIGH - Feature breaks for users with delay rules
+**Next Steps**: Implement one of the solutions in Section 6 and test

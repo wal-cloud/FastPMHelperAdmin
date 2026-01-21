@@ -956,9 +956,29 @@ namespace FastPMHelperAddin
         {
             try
             {
+                // DEBUG: Log folder and mail state to detect Outbox writes
+                string folderName = "(unknown)";
+                string mailState = "(unknown)";
+                try
+                {
+                    var folder = mail.Parent as Outlook.MAPIFolder;
+                    folderName = folder?.Name ?? "(no folder)";
+                    mailState = $"Sent={mail.Sent}, Submitted={mail.Submitted}";
+                }
+                catch { /* ignore folder access errors */ }
+
                 System.Diagnostics.Debug.WriteLine($"=== SaveDeferredData START ===");
-                System.Diagnostics.Debug.WriteLine($"Mail subject: {mail.Subject}");
+                System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG] SAVE operation:");
+                System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   Subject: {mail.Subject}");
+                System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   Folder: {folderName}");
+                System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   State: {mailState}");
                 System.Diagnostics.Debug.WriteLine($"Data Mode: {data.Mode}, ActionID: {data.ActionID}");
+
+                // WARN if writing to Outbox item
+                if (folderName.Equals("Outbox", StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG] 🔴🔴🔴 CRITICAL: WRITING TO OUTBOX ITEM! 🔴🔴🔴");
+                }
 
                 var json = JsonSerializer.Serialize(data);
                 System.Diagnostics.Debug.WriteLine($"Serialized JSON: {json}");
@@ -990,26 +1010,31 @@ namespace FastPMHelperAddin
         }
 
         /// <summary>
-        /// Loads deferred action data from the mail item's UserProperties
+        /// Loads deferred action data using PropertyAccessor (stealth mode).
+        /// This avoids creating COM locks that interfere with Outlook's delay rules.
         /// </summary>
         private DeferredActionData LoadDeferredData(Outlook.MailItem mail)
         {
+            // MAPI Schema for UserProperties - uses PS_PUBLIC_STRINGS GUID
+            const string SCHEMA = "http://schemas.microsoft.com/mapi/string/{00020329-0000-0000-C000-000000000046}/FastPMDeferredAction";
+
             try
             {
-                var props = mail.UserProperties;
-                var prop = props.Find(DEFERRED_PROPERTY_NAME);
+                // Use PropertyAccessor instead of UserProperties.Find()
+                // This reads the data stream without creating COM locks that break Outbox processing
+                var accessor = mail.PropertyAccessor;
+                string json = accessor.GetProperty(SCHEMA) as string;
 
-                if (prop == null || string.IsNullOrEmpty(prop.Value?.ToString()))
+                if (string.IsNullOrEmpty(json))
                 {
                     return null;
                 }
 
-                var json = prop.Value.ToString();
                 return JsonSerializer.Deserialize<DeferredActionData>(json);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"ERROR loading deferred data: {ex.Message}");
+                // PropertyAccessor throws if property doesn't exist - this is normal for new emails
                 return null;
             }
         }
@@ -1021,6 +1046,28 @@ namespace FastPMHelperAddin
         {
             try
             {
+                // DEBUG: Log folder and mail state to detect Outbox writes
+                string folderName = "(unknown)";
+                string mailState = "(unknown)";
+                try
+                {
+                    var folder = mail.Parent as Outlook.MAPIFolder;
+                    folderName = folder?.Name ?? "(no folder)";
+                    mailState = $"Sent={mail.Sent}, Submitted={mail.Submitted}";
+                }
+                catch { /* ignore folder access errors */ }
+
+                System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG] ClearDeferredData called:");
+                System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   Subject: {mail.Subject}");
+                System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   Folder: {folderName}");
+                System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG]   State: {mailState}");
+
+                // WARN if clearing on Outbox item
+                if (folderName.Equals("Outbox", StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[OUTBOX-DEBUG] 🔴🔴🔴 CRITICAL: CLEARING/SAVING OUTBOX ITEM! 🔴🔴🔴");
+                }
+
                 var props = mail.UserProperties;
                 var prop = props.Find(DEFERRED_PROPERTY_NAME);
 

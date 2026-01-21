@@ -2221,13 +2221,29 @@ namespace FastPMHelperAddin.UI
         /// <summary>
         /// Called when a compose window (Inspector) is opened OR when inline compose is detected
         /// </summary>
+        public void OnInlineComposeActivated()
+        {
+            System.Diagnostics.Debug.WriteLine("OnInlineComposeActivated");
+
+            _composeMail = null;
+            _composeInspector = null;
+            _isComposeMode = true;
+            _currentDeferredData = null;
+
+            // Update UI for compose mode (no mail access for inline)
+            UpdateUIForComposeMode();
+        }
+
+        /// <summary>
+        /// Called when a compose window (Inspector) is opened OR when inline compose is detected
+        /// </summary>
         public void OnComposeItemActivated(Outlook.MailItem mail, Outlook.Inspector inspector)
         {
             System.Diagnostics.Debug.WriteLine($"OnComposeItemActivated: {mail.Subject ?? "(No Subject)"}");
             System.Diagnostics.Debug.WriteLine($"  Inspector: {(inspector != null ? "Popup window" : "Inline editing")}");
 
-            _composeMail = mail;
-            _composeInspector = inspector; // Can be null for inline editing
+            //_composeMail = mail;
+            //_composeInspector = inspector; // Can be null for inline editing
             _isComposeMode = true;
 
             // Load any existing deferred data
@@ -2365,29 +2381,33 @@ namespace FastPMHelperAddin.UI
         }
 
         /// <summary>
-        /// Loads deferred action data from the mail item's UserProperties
+        /// Loads deferred action data using PropertyAccessor (stealth mode).
+        /// This avoids creating COM locks that interfere with Outlook's delay rules.
         /// </summary>
         private DeferredActionData LoadDeferredData(Outlook.MailItem mail)
         {
+            // MAPI Schema for UserProperties - uses PS_PUBLIC_STRINGS GUID
+            const string SCHEMA = "http://schemas.microsoft.com/mapi/string/{00020329-0000-0000-C000-000000000046}/FastPMDeferredAction";
+
             try
             {
-                var props = mail.UserProperties;
-                var prop = props.Find(DEFERRED_PROPERTY_NAME);
+                // Use PropertyAccessor instead of UserProperties.Find()
+                // This reads the data stream without creating COM locks that break Outbox processing
+                var accessor = mail.PropertyAccessor;
+                string json = accessor.GetProperty(SCHEMA) as string;
 
-                if (prop == null || string.IsNullOrEmpty(prop.Value?.ToString()))
+                if (string.IsNullOrEmpty(json))
                 {
                     return null;
                 }
 
-                var json = prop.Value.ToString();
                 var data = JsonSerializer.Deserialize<DeferredActionData>(json);
-
                 System.Diagnostics.Debug.WriteLine($"Loaded deferred data: {json}");
                 return data;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Error loading deferred data: {ex.Message}");
+                // PropertyAccessor throws if property doesn't exist - this is normal for new emails
                 return null;
             }
         }
@@ -2898,36 +2918,36 @@ namespace FastPMHelperAddin.UI
 
             try
             {
-                _dashboardSelectedAction = action;
+                //_dashboardSelectedAction = action;
 
-                // Populate action details
-                DashboardProjectText.Text = action.Project ?? "";
-                DashboardPackageText.Text = action.Package ?? "";
-                DashboardTitleText.Text = action.Title ?? "";
-                DashboardBallHolderText.Text = action.BallHolder ?? "";
+                //// Populate action details
+                //DashboardProjectText.Text = action.Project ?? "";
+                //DashboardPackageText.Text = action.Package ?? "";
+                //DashboardTitleText.Text = action.Title ?? "";
+                //DashboardBallHolderText.Text = action.BallHolder ?? "";
 
-                // Show results section
-                DashboardResultsSection.Visibility = Visibility.Visible;
+                //// Show results section
+                //DashboardResultsSection.Visibility = Visibility.Visible;
 
-                // Load related emails
-                var emailReferences = action.ParseActiveMessageIds();
+                //// Load related emails
+                //var emailReferences = action.ParseActiveMessageIds();
 
-                if (emailReferences.Count == 0)
-                {
-                    DashboardRelatedMessagesListView.ItemsSource = null;
-                    return;
-                }
+                //if (emailReferences.Count == 0)
+                //{
+                //    DashboardRelatedMessagesListView.ItemsSource = null;
+                //    return;
+                //}
 
-                SetStatus($"Loading {emailReferences.Count} related messages for Action {action.Id}...");
+                //SetStatus($"Loading {emailReferences.Count} related messages for Action {action.Id}...");
 
-                var relatedEmails = await Task.Run(() =>
-                    _emailRetrievalService.RetrieveEmailsByReferences(emailReferences));
+                //var relatedEmails = await Task.Run(() =>
+                //    _emailRetrievalService.RetrieveEmailsByReferences(emailReferences));
 
-                Dispatcher.Invoke(() =>
-                {
-                    DashboardRelatedMessagesListView.ItemsSource = relatedEmails;
-                    SetStatus($"Dashboard: Loaded {relatedEmails.Count} messages for Action {action.Id}");
-                });
+                //Dispatcher.Invoke(() =>
+                //{
+                //    DashboardRelatedMessagesListView.ItemsSource = relatedEmails;
+                //    SetStatus($"Dashboard: Loaded {relatedEmails.Count} messages for Action {action.Id}");
+                //});
             }
             catch (Exception ex)
             {

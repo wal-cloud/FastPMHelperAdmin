@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -22,6 +22,9 @@ namespace FastPMHelperAddin
         private Outlook.Inspectors _inspectors;
         private Dictionary<string, InspectorWrapper> _inspectorWrappers = new Dictionary<string, InspectorWrapper>();
 
+        // COOLDOWN TIMER: prevents touching Outlook immediately after a send
+        private DateTime _ignoreSelectionUntil = DateTime.MinValue;
+
         private const string RootPath = @"C:\MailPipeline";
         private const string TrackedEmailAccount = "wally.cloud@dynonobel.com";
 
@@ -34,6 +37,7 @@ namespace FastPMHelperAddin
             {
                 _app = Globals.ThisAddIn.Application;
                 _ns = _app.GetNamespace("MAPI");
+                _app.ItemSend += Application_ItemSend;
 
                 // Monitor Sent Items for ALL accounts (for deferred action execution)
                 System.Diagnostics.Debug.WriteLine("=== Setting up Sent Items monitoring ===");
@@ -193,39 +197,28 @@ namespace FastPMHelperAddin
 
         private void Explorer_SelectionChange()
         {
+            // -----------------------------------------------------------------
+            // 1. GLOBAL COOLDOWN CHECK
+            // -----------------------------------------------------------------
+            if (DateTime.Now < _ignoreSelectionUntil)
+            {
+                System.Diagnostics.Debug.WriteLine(" [COOLDOWN] Ignoring selection change (cooling down from Send)...");
+                return;
+            }
+            // -----------------------------------------------------------------
+
             System.Diagnostics.Debug.WriteLine($"=== Explorer_SelectionChange EVENT FIRED === (Time: {DateTime.Now:HH:mm:ss.fff})");
 
             try
             {
-                // Check if we need to exit compose mode (inline compose only)
-                if (_actionPane != null && _actionPane.IsComposeMode)
+                var explorer = _app.ActiveExplorer();
+                System.Diagnostics.Debug.WriteLine($"  Current Explorer: {explorer?.GetHashCode()}, Stored Explorer: {_currentExplorer?.GetHashCode()}");
+
+                        // Check if we need to exit compose mode (inline compose only)
+                        if (_actionPane != null && _actionPane.IsComposeMode)
                 {
-                    // Only handle inline compose exit (popup compose handled by Inspector.Close)
-                    if (_actionPane.ComposeInspector == null)
-                    {
-                        System.Diagnostics.Debug.WriteLine("  In inline compose mode - checking if user clicked away");
-                        // Inline compose mode - check if user clicked away
-                        if (_currentExplorer.ActiveInlineResponse == null)
-                        {
-                            System.Diagnostics.Debug.WriteLine("  ActiveInlineResponse is null - exiting compose mode");
-                            _actionPane.Dispatcher.Invoke(() =>
-                            {
-                                _actionPane.OnComposeItemDeactivated();
-                            });
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine("  ActiveInlineResponse still active - staying in compose mode");
-                            // Don't process selection - we're still in compose mode
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine("  In popup compose mode - Inspector.Close will handle exit");
-                        // Don't process selection - we're in popup compose mode
-                        return;
-                    }
+                    System.Diagnostics.Debug.WriteLine("  In compose mode - ignoring selection change");
+                    return;
                 }
 
                 if (_actionPane == null)
@@ -234,8 +227,11 @@ namespace FastPMHelperAddin
                     return;
                 }
 
-                var explorer = _app.ActiveExplorer();
-                System.Diagnostics.Debug.WriteLine($"  Current Explorer: {explorer?.GetHashCode()}, Stored Explorer: {_currentExplorer?.GetHashCode()}");
+                if (explorer == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("  Explorer is null, returning");
+                    return;
+                }
                 System.Diagnostics.Debug.WriteLine($"  Selection count: {explorer.Selection.Count}");
 
                 if (explorer.Selection.Count > 0)
@@ -245,10 +241,54 @@ namespace FastPMHelperAddin
 
                     if (selection is Outlook.MailItem mail)
                     {
+
+                        // ====================================================================
+                        //  CRITICAL GUARD: THE "RADIOACTIVE OUTBOX" CHECK
+                        // ====================================================================
+                        //  If this item is in the Outbox, we MUST NOT touch it further.
+                        //  Touching it here (reading props, passing to sidebar) creates a COM lock
+                        //  that conflicts with the 2-minute Delay Rule, causing emails to get stuck.
+                        // ====================================================================
+
+                        string folderName = "";
+
+                        try
+                        {
+                            // Check folder name safely
+                            var folder = mail.Parent as Outlook.MAPIFolder;
+                            folderName = folder?.Name;
+                        }
+                        catch { /* Ignore errors if parent is inaccessible */ }
+
+                        if (folderName != null && folderName.Equals("Outbox", StringComparison.OrdinalIgnoreCase))
+                        {
+                            System.Diagnostics.Debug.WriteLine(" [OUTBOX-GUARD] Ignoring Outbox item to prevent Lock.");
+                            // RELEASE THE COM OBJECT IMMEDIATELY
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(mail);
+                            return;
+                        }
+
                         System.Diagnostics.Debug.WriteLine($"  Email selected: {mail.Subject}");
                         System.Diagnostics.Debug.WriteLine($"  Sent status: {mail.Sent}");
+                        System.Diagnostics.Debug.WriteLine($"  Submitted status: {mail.Submitted}");
 
-                        // NEW: Check if this is an unsent email (draft/compose mode)
+                        // DEBUG: Log folder for diagnostics
+                        try
+                        {
+                            var folder = mail.Parent as Outlook.MAPIFolder;
+                            System.Diagnostics.Debug.WriteLine($"  [OUTBOX-DEBUG] Folder: {folder?.Name ?? "(no folder)"}");
+                        }
+                        catch { /* ignore */ }
+
+                        // Skip if Submitted (truly in Outbox awaiting send)
+                        if (mail.Submitted)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"  [OUTBOX-DEBUG] ? SKIPPING - Submitted=True");
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(mail);
+                            return;
+                        }
+
+                        // Check if this is an unsent email (draft/compose mode)
                         if (!mail.Sent)
                         {
                             System.Diagnostics.Debug.WriteLine("  Detected UNSENT email (inline compose) - entering compose mode");
@@ -303,44 +343,33 @@ namespace FastPMHelperAddin
         {
             System.Diagnostics.Debug.WriteLine($"=== Explorer_InlineResponse EVENT FIRED === (Time: {DateTime.Now:HH:mm:ss.fff})");
 
-            try
+            if (item is Outlook.MailItem draft)
             {
-                if (item is Outlook.MailItem draft)
+                try
                 {
-                    System.Diagnostics.Debug.WriteLine($"  Inline compose started for: {draft.Subject}");
-
-                    // Race condition check: If already in compose mode with different draft
-                    if (_actionPane.IsComposeMode && _actionPane.ComposeMail != null)
+                    if (_actionPane == null)
                     {
-                        if (draft.EntryID != _actionPane.ComposeMail.EntryID)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"  Different draft detected - exiting old compose mode first");
-                            // Different draft - exit old, enter new
-                            _actionPane.Dispatcher.Invoke(() =>
-                            {
-                                _actionPane.OnComposeItemDeactivated();
-                            });
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"  Same draft - already in compose mode, ignoring");
-                            // Same draft - already in compose mode, ignore
-                            return;
-                        }
+                        System.Diagnostics.Debug.WriteLine("  _actionPane is null, returning");
+                        return;
                     }
 
-                    // Inline compose started in reading pane
-                    System.Diagnostics.Debug.WriteLine($"  Entering compose mode (inline)");
+                    System.Diagnostics.Debug.WriteLine("  Inline compose started (no draft access)");
+
                     _actionPane.Dispatcher.Invoke(() =>
                     {
-                        _actionPane.OnComposeItemActivated(draft, null);
+                        _actionPane.OnInlineComposeActivated();
                     });
                 }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error in InlineResponse: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error in InlineResponse: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                }
+                finally
+                {
+                    // CRITICAL FIX: RELEASE THE ZOMBIE GRIP
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(draft);
+                }
             }
         }
 
@@ -400,6 +429,30 @@ namespace FastPMHelperAddin
             }
         }
 
+        private void Application_ItemSend(object item, ref bool cancel)
+        {
+            System.Diagnostics.Debug.WriteLine("=== Application_ItemSend EVENT FIRED ===");
+
+            try
+            {
+                if (_actionPane != null && _actionPane.IsComposeMode)
+                {
+                    _actionPane.Dispatcher.Invoke(() =>
+                    {
+                        _actionPane.OnComposeItemDeactivated();
+                    });
+                }
+
+                // Delay-rule safety window: do not touch selection during send delay
+                _ignoreSelectionUntil = DateTime.Now.AddMinutes(2);
+                System.Diagnostics.Debug.WriteLine("  [COOLDOWN] Activated 2m delay-rule safety timer.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Application_ItemSend: {ex.Message}");
+            }
+        }
+
         private void ThisAddIn_Shutdown(object sender, EventArgs e)
         {
             try
@@ -417,6 +470,11 @@ namespace FastPMHelperAddin
                     _currentExplorer.SelectionChange -= Explorer_SelectionChange;
                     _currentExplorer.InlineResponse -= Explorer_InlineResponse;
                     System.Diagnostics.Debug.WriteLine("Explorer events unhooked (SelectionChange, InlineResponse)");
+                }
+
+                if (_app != null)
+                {
+                    _app.ItemSend -= Application_ItemSend;
                 }
 
                 // NEW: Unhook inspectors event
@@ -559,10 +617,10 @@ namespace FastPMHelperAddin
                 }
 
                 var json = prop.Value.ToString();
-                System.Diagnostics.Debug.WriteLine($"✓ Found deferred property: {json}");
+                System.Diagnostics.Debug.WriteLine($"? Found deferred property: {json}");
 
                 var data = JsonSerializer.Deserialize<DeferredActionData>(json);
-                System.Diagnostics.Debug.WriteLine($"✓ Deserialized: Mode={data.Mode}, ActionID={data.ActionID}");
+                System.Diagnostics.Debug.WriteLine($"? Deserialized: Mode={data.Mode}, ActionID={data.ActionID}");
 
                 return data;
             }
@@ -617,48 +675,48 @@ namespace FastPMHelperAddin
                 // Execute based on mode
                 if (data.Mode == "Create")
                 {
-                    System.Diagnostics.Debug.WriteLine("→ Dispatching ExecuteDeferredCreateAsync to UI thread");
+                    System.Diagnostics.Debug.WriteLine("? Dispatching ExecuteDeferredCreateAsync to UI thread");
                     await _actionPane.Dispatcher.InvokeAsync(async () =>
                     {
                         await _actionPane.ExecuteDeferredCreateAsync(mail);
                     });
-                    System.Diagnostics.Debug.WriteLine("✓ ExecuteDeferredCreateAsync completed");
+                    System.Diagnostics.Debug.WriteLine("? ExecuteDeferredCreateAsync completed");
                 }
                 else if (data.Mode == "CreateMultiple")
                 {
-                    System.Diagnostics.Debug.WriteLine("→ Dispatching ExecuteDeferredCreateMultipleAsync to UI thread");
+                    System.Diagnostics.Debug.WriteLine("? Dispatching ExecuteDeferredCreateMultipleAsync to UI thread");
                     await _actionPane.Dispatcher.InvokeAsync(async () =>
                     {
                         await _actionPane.ExecuteDeferredCreateMultipleAsync(mail);
                     });
-                    System.Diagnostics.Debug.WriteLine("✓ ExecuteDeferredCreateMultipleAsync completed");
+                    System.Diagnostics.Debug.WriteLine("? ExecuteDeferredCreateMultipleAsync completed");
                 }
                 else if (data.Mode == "Update" && data.ActionID.HasValue)
                 {
-                    System.Diagnostics.Debug.WriteLine($"→ Dispatching ExecuteDeferredUpdateAsync for action {data.ActionID.Value}");
+                    System.Diagnostics.Debug.WriteLine($"? Dispatching ExecuteDeferredUpdateAsync for action {data.ActionID.Value}");
                     await _actionPane.Dispatcher.InvokeAsync(async () =>
                     {
                         await _actionPane.ExecuteDeferredUpdateAsync(mail, data.ActionID.Value);
                     });
-                    System.Diagnostics.Debug.WriteLine($"✓ ExecuteDeferredUpdateAsync completed for action {data.ActionID.Value}");
+                    System.Diagnostics.Debug.WriteLine($"? ExecuteDeferredUpdateAsync completed for action {data.ActionID.Value}");
                 }
                 else if (data.Mode == "Close" && data.ActionID.HasValue)
                 {
-                    System.Diagnostics.Debug.WriteLine($"→ Dispatching ExecuteDeferredCloseAsync for action {data.ActionID.Value}");
+                    System.Diagnostics.Debug.WriteLine($"? Dispatching ExecuteDeferredCloseAsync for action {data.ActionID.Value}");
                     await _actionPane.Dispatcher.InvokeAsync(async () =>
                     {
                         await _actionPane.ExecuteDeferredCloseAsync(mail, data.ActionID.Value);
                     });
-                    System.Diagnostics.Debug.WriteLine($"✓ ExecuteDeferredCloseAsync completed for action {data.ActionID.Value}");
+                    System.Diagnostics.Debug.WriteLine($"? ExecuteDeferredCloseAsync completed for action {data.ActionID.Value}");
                 }
                 else if (data.Mode == "Reopen" && data.ActionID.HasValue)
                 {
-                    System.Diagnostics.Debug.WriteLine($"→ Dispatching ExecuteDeferredReopenAsync for action {data.ActionID.Value}");
+                    System.Diagnostics.Debug.WriteLine($"? Dispatching ExecuteDeferredReopenAsync for action {data.ActionID.Value}");
                     await _actionPane.Dispatcher.InvokeAsync(async () =>
                     {
                         await _actionPane.ExecuteDeferredReopenAsync(mail, data.ActionID.Value);
                     });
-                    System.Diagnostics.Debug.WriteLine($"✓ ExecuteDeferredReopenAsync completed for action {data.ActionID.Value}");
+                    System.Diagnostics.Debug.WriteLine($"? ExecuteDeferredReopenAsync completed for action {data.ActionID.Value}");
                 }
                 else
                 {
@@ -666,9 +724,9 @@ namespace FastPMHelperAddin
                 }
 
                 // Cleanup: Remove the deferred property
-                System.Diagnostics.Debug.WriteLine("→ Clearing deferred data property");
+                System.Diagnostics.Debug.WriteLine("? Clearing deferred data property");
                 ClearDeferredData(mail);
-                System.Diagnostics.Debug.WriteLine("✓ Deferred data cleared");
+                System.Diagnostics.Debug.WriteLine("? Deferred data cleared");
 
                 System.Diagnostics.Debug.WriteLine($"=== ExecuteDeferredActionAsync END ===");
             }
