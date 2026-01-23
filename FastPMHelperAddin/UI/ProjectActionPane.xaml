@@ -362,7 +362,6 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
                                     <!-- Label -->
@@ -373,24 +372,10 @@
                                                Foreground="#FFA000"
                                                VerticalAlignment="Center"/>
 
-                                    <!-- Expand to filter button (visible in "With Me" mode) -->
-                                    <Button x:Name="ExpandUserFilterButton"
-                                            Grid.Column="2"
-                                            Content="⋯"
-                                            FontSize="12"
-                                            Width="24"
-                                            Height="20"
-                                            Padding="0"
-                                            Margin="0,0,4,0"
-                                            Style="{StaticResource ModernButtonSecondary}"
-                                            Click="ExpandUserFilterButton_Click"
-                                            ToolTip="Filter by any user"/>
-
-                                    <!-- User Filter Dropdown (visible in expanded mode) -->
+                                    <!-- User Filter Dropdown (always visible) -->
                                     <ComboBox x:Name="UserFilterComboBox"
-                                              Grid.Column="3"
+                                              Grid.Column="2"
                                               Style="{StaticResource ModernComboBox}"
-                                              Visibility="Collapsed"
                                               SelectionChanged="UserFilterComboBox_SelectionChanged"
                                               FontSize="11"
                                               Height="24"
@@ -398,18 +383,17 @@
                                               HorizontalAlignment="Right"
                                               Margin="0,0,4,0"/>
 
-                                    <!-- Reset to Me button (visible in expanded mode) -->
+                                    <!-- Reset to Me button (always visible) -->
                                     <Button x:Name="ResetToMeButton"
-                                            Grid.Column="4"
+                                            Grid.Column="3"
                                             Content="✕"
                                             FontSize="14"
                                             Width="24"
                                             Height="24"
                                             Padding="0"
-                                            Visibility="Collapsed"
                                             Style="{StaticResource ModernButtonSecondary}"
                                             Click="ResetToMeButton_Click"
-                                            ToolTip="Switch back to 'With Me' mode"/>
+                                            ToolTip="Reset to 'With Me' mode"/>
                                 </Grid>
 
                                 <!-- Actions ComboBox -->

@@ -1,8 +1,107 @@
-﻿Simplify existing sidebar UI and make more space efficient:
-- Remove action row titles, these are pretty obvious from the context anyway.  Eg. Project, Package, Title, etc.  Just remove them completely.
-- Put project/package on the same line.  Auto share width based on content.  If both need all space Project should take it.
-- Also remove "related messages" label
-- Put open all messages button inline with LinkedAction, near the tick mark button.  Text: Open All {message icon}
-- Remove the "selected email" header and text, this was for testing and is unnessecary
-- Remove the settings and make a gear icon at the top of the side bar (near the refresh sheet button) that opens a window which has these settings in them
-- Project actions header is repeated twice, once in the title for the sidebar and once again as a header
+﻿=== SaveDeferredData END ===
+  Update action scheduled for ActionID: 
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B41D0000'
+'outlook.exe' (CLR v4.0.30319: FastPMHelperAddin.vsto|vstolocal): Loaded 'C:\Users\wally\AppData\Local\assembly\dl3\3Y625D6P.5NV\KLE3EOK9.6A6\c066fe13\00dbdd46_1199db01\System.Numerics.Vectors.dll'. Skipped loading symbols. Module is optimized and the debugger option 'Just My Code' is enabled.
+[Ribbon-1] GetUpdateActionPressed: Subject='RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows', Mode='Update', returning True
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B41D0000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B41D0000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B41D0000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B41D0000'
+[Ribbon-1] GetActionCount CALLED
+[Ribbon-1] Using CAPTURED grouping from InspectorWrapper
+[Ribbon-1]   Captured: 1 linked, 14 package, 9 project, 26 other
+[Ribbon-1]   Linked actions:
+[Ribbon-1]     - ID 13: TQ-010 - Bellows clarifications
+[Ribbon-1] PopulateDropdownActions complete - 50 actions
+[Ribbon-1] ▶ GetSelectedActionIndex CALLED
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B41D0000'
+[Ribbon-1]   MailItem Subject: 'RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows'
+[Ribbon-1]   Loaded data: Mode='Update', ActionID=
+[Ribbon-1]   ✓ RETURNING index 0 (auto-select first linked): TQ-010 - Bellows clarifications
+=== Explorer_SelectionChange EVENT FIRED === (Time: 16:34:05.059)
+  Current Explorer: 35264868, Stored Explorer: 35264868
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: E2A & EGH Bellows Asif discussion 23.01
+  Sent status: True
+  Regular sent/received email - normal mode
+EmailProperties.ExtractFrom: ConversationID = 'DFEFB53F9C354FA1BD4448BA994A30DA'
+  Property extraction took 1ms on COM thread
+OnEmailSelected called with: E2A & EGH Bellows Asif discussion 23.01
+  OnEmailSelected initial setup took 0ms on UI thread
+Project 'AMM25012' scored 109 points
+Project 'AMM25028' scored 109 points
+Project-level keywords captured (will be excluded from package scoring): egh, e2a
+Package 'EGH Supply' matched keywords but all were project-level: egh - EXCLUDED
+Package 'FEA Design' matched keywords but all were project-level: egh - EXCLUDED
+Package 'Piping Supply' matched keywords but all were project-level: e2a - EXCLUDED
+Package 'Piping Design' matched keywords but all were project-level: e2a - EXCLUDED
+Package 'Thermowell Supply' matched keywords but all were project-level: e2a - EXCLUDED
+Classification Result: Project=Random, Package=, IsAmbiguous=True
+Ambiguity Reason: Multiple projects have matching scores, Candidates: 2
+  Classification took 39ms on background thread
+Email selection updated: E2A & EGH Bellows Asif discussion 23.01
+=== Explorer_SelectionChange EVENT FIRED === (Time: 16:34:17.986)
+  Current Explorer: 35264868, Stored Explorer: 35264868
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: E2A & EGH Bellows Asif discussion 23.01
+  Sent status: True
+  Regular sent/received email - normal mode
+EmailProperties.ExtractFrom: ConversationID = 'DFEFB53F9C354FA1BD4448BA994A30DA'
+  Property extraction took 1ms on COM thread
+OnEmailSelected called with: E2A & EGH Bellows Asif discussion 23.01
+  OnEmailSelected initial setup took 0ms on UI thread
+Project 'AMM25012' scored 109 points
+Project 'AMM25028' scored 109 points
+Project-level keywords captured (will be excluded from package scoring): egh, e2a
+Package 'EGH Supply' matched keywords but all were project-level: egh - EXCLUDED
+Package 'FEA Design' matched keywords but all were project-level: egh - EXCLUDED
+Package 'Piping Supply' matched keywords but all were project-level: e2a - EXCLUDED
+Package 'Piping Design' matched keywords but all were project-level: e2a - EXCLUDED
+Package 'Thermowell Supply' matched keywords but all were project-level: e2a - EXCLUDED
+Classification Result: Project=Random, Package=, IsAmbiguous=True
+Ambiguity Reason: Multiple projects have matching scores, Candidates: 2
+  Classification took 40ms on background thread
+Email selection updated: E2A & EGH Bellows Asif discussion 23.01
+InspectorWrapper closing for Inspector 4491214
+InspectorWrapper removed from dictionary: 4491214
+=== Explorer_SelectionChange EVENT FIRED === (Time: 16:34:31.043)
+  Current Explorer: 35264868, Stored Explorer: 35264868
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: E2A & EGH Bellows Asif discussion 23.01
+  Sent status: True
+  Regular sent/received email - normal mode
+EmailProperties.ExtractFrom: ConversationID = 'DFEFB53F9C354FA1BD4448BA994A30DA'
+  Property extraction took 1ms on COM thread
+OnEmailSelected called with: E2A & EGH Bellows Asif discussion 23.01
+  OnEmailSelected initial setup took 0ms on UI thread
+Project 'AMM25012' scored 109 points
+Project 'AMM25028' scored 109 points
+Project-level keywords captured (will be excluded from package scoring): egh, e2a
+Package 'EGH Supply' matched keywords but all were project-level: egh - EXCLUDED
+Package 'FEA Design' matched keywords but all were project-level: egh - EXCLUDED
+Package 'Piping Supply' matched keywords but all were project-level: e2a - EXCLUDED
+Package 'Piping Design' matched keywords but all were project-level: e2a - EXCLUDED
+Package 'Thermowell Supply' matched keywords but all were project-level: e2a - EXCLUDED
+Classification Result: Project=Random, Package=, IsAmbiguous=True
+Ambiguity Reason: Multiple projects have matching scores, Candidates: 2
+  Classification took 39ms on background thread
+Email selection updated: E2A & EGH Bellows Asif discussion 23.01
+=== SentItems_ItemAdd EVENT FIRED ===
+Processing sent mail: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+=== Checking for deferred data in mail: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows ===
+Total UserProperties count: 1
+  Property: FastPMDeferredAction = {"Mode":"Update","ActionID":null,"ManualTitle":null,"ManualAssignee":null}
+✓ Found deferred property: {"Mode":"Update","ActionID":null,"ManualTitle":null,"ManualAssignee":null}
+✓ Deserialized: Mode=Update, ActionID=
+Found deferred action: Update
+=== ExecuteDeferredActionAsync START ===
+Mode: Update, ActionID: 
+Mail subject: RE: B&R25054 | AMM25012-PPN-311 |  TQ010 on bellows
+WARNING: Unknown mode 'Update' or missing ActionID
+→ Clearing deferred data property
+Cleared deferred data from sent item
+✓ Deferred data cleared
+=== ExecuteDeferredActionAsync END ===

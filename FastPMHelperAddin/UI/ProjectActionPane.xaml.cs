@@ -64,7 +64,6 @@ namespace FastPMHelperAddin.UI
         private ActionItem _dashboardSelectedAction;
 
         // User filter state
-        private bool _isUserFilterExpanded = false;
         private string _selectedFilterUser = null; // null = "With Me" mode, otherwise filtered user name
 
         // Collapse/Expand state
@@ -209,10 +208,55 @@ namespace FastPMHelperAddin.UI
                 _withMeActions = new List<ActionItem>();
                 OverdueActionsComboBox.ItemsSource = null;
                 WithMeActionsComboBox.ItemsSource = null;
+                UserFilterComboBox.ItemsSource = null;
                 OverdueSection.Visibility = Visibility.Collapsed;
                 WithMeSection.Visibility = Visibility.Collapsed;
                 return;
             }
+
+            // Populate user filter dropdown with all unique users from BallHolder fields
+            var allUsers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var action in _openActions)
+            {
+                if (!string.IsNullOrWhiteSpace(action.BallHolder))
+                {
+                    var users = action.BallHolder.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var user in users)
+                    {
+                        var trimmedUser = user.Trim();
+                        if (!string.IsNullOrWhiteSpace(trimmedUser))
+                        {
+                            allUsers.Add(trimmedUser);
+                        }
+                    }
+                }
+            }
+
+            var sortedUsers = allUsers.OrderBy(u => u).ToList();
+
+            // Temporarily disable selection changed event
+            UserFilterComboBox.SelectionChanged -= UserFilterComboBox_SelectionChanged;
+            UserFilterComboBox.ItemsSource = sortedUsers;
+
+            // Select the appropriate user in the dropdown
+            if (!string.IsNullOrWhiteSpace(_selectedFilterUser))
+            {
+                // Filter mode: select the filtered user
+                var matchingUser = sortedUsers.FirstOrDefault(u =>
+                    u.Equals(_selectedFilterUser, StringComparison.OrdinalIgnoreCase));
+                UserFilterComboBox.SelectedItem = matchingUser;
+            }
+            else
+            {
+                // "With Me" mode: select current user
+                var currentUserMatch = sortedUsers.FirstOrDefault(u =>
+                    u.Equals(_currentUserName, StringComparison.OrdinalIgnoreCase) ||
+                    IsAssignedToUser(u, _currentUserName));
+                UserFilterComboBox.SelectedItem = currentUserMatch;
+            }
+
+            // Re-enable selection changed event
+            UserFilterComboBox.SelectionChanged += UserFilterComboBox_SelectionChanged;
 
             // Filter overdue actions
             _overdueActions = _openActions
@@ -228,11 +272,11 @@ namespace FastPMHelperAddin.UI
 
             // Filter with me/user actions (exclude overdue to avoid duplicates)
             // If user filter is active, filter by selected user; otherwise filter by current user
-            string targetUser = _isUserFilterExpanded && !string.IsNullOrWhiteSpace(_selectedFilterUser)
+            string targetUser = !string.IsNullOrWhiteSpace(_selectedFilterUser)
                 ? _selectedFilterUser
                 : _currentUserName;
 
-            bool isFilterMode = _isUserFilterExpanded && !string.IsNullOrWhiteSpace(_selectedFilterUser);
+            bool isFilterMode = !string.IsNullOrWhiteSpace(_selectedFilterUser);
 
             _withMeActions = _openActions
                 .Where(a =>
@@ -2919,67 +2963,15 @@ namespace FastPMHelperAddin.UI
 
         private void ExpandUserFilterButton_Click(object sender, RoutedEventArgs e)
         {
-            _isUserFilterExpanded = true;
-
-            // Get all unique users from BallHolder fields (split by semicolon)
-            var allUsers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            if (_openActions != null)
-            {
-                foreach (var action in _openActions)
-                {
-                    if (!string.IsNullOrWhiteSpace(action.BallHolder))
-                    {
-                        // Split by semicolon and add each user
-                        var users = action.BallHolder.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-                        foreach (var user in users)
-                        {
-                            var trimmedUser = user.Trim();
-                            if (!string.IsNullOrWhiteSpace(trimmedUser))
-                            {
-                                allUsers.Add(trimmedUser);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Populate user filter dropdown
-            var sortedUsers = allUsers.OrderBy(u => u).ToList();
-            UserFilterComboBox.ItemsSource = sortedUsers;
-
-            // Select current user by default if they exist in the list
-            var currentUserMatch = sortedUsers.FirstOrDefault(u =>
-                u.Equals(_currentUserName, StringComparison.OrdinalIgnoreCase) ||
-                IsAssignedToUser(u, _currentUserName));
-
-            if (currentUserMatch != null)
-            {
-                UserFilterComboBox.SelectedItem = currentUserMatch;
-            }
-            else if (sortedUsers.Count > 0)
-            {
-                UserFilterComboBox.SelectedIndex = 0;
-            }
-
-            // Update UI
-            WithMeLabel.Text = "With...";
-            ExpandUserFilterButton.Visibility = Visibility.Collapsed;
-            UserFilterComboBox.Visibility = Visibility.Visible;
-            ResetToMeButton.Visibility = Visibility.Visible;
+            // This button is no longer used in the UI but keeping handler for backwards compatibility
         }
 
         private void ResetToMeButton_Click(object sender, RoutedEventArgs e)
         {
-            _isUserFilterExpanded = false;
+            // Reset to "With Me" mode by clearing the filter
             _selectedFilterUser = null;
 
-            // Update UI
-            ExpandUserFilterButton.Visibility = Visibility.Visible;
-            UserFilterComboBox.Visibility = Visibility.Collapsed;
-            ResetToMeButton.Visibility = Visibility.Collapsed;
-
-            // Refresh dashboard to show "With Me" again
+            // Refresh dashboard to show "With Me" again and reset dropdown selection
             RefreshDashboard();
         }
 
@@ -2987,31 +2979,48 @@ namespace FastPMHelperAddin.UI
         {
             if (UserFilterComboBox.SelectedItem is string selectedUser)
             {
-                _selectedFilterUser = selectedUser;
+                // Check if selected user is current user - if so, use "With Me" mode (null filter)
+                bool isCurrentUser = selectedUser.Equals(_currentUserName, StringComparison.OrdinalIgnoreCase) ||
+                                    IsAssignedToUser(selectedUser, _currentUserName);
 
-                // Filter actions where selected user appears in BallHolder
-                var filteredActions = _openActions
+                if (isCurrentUser)
+                {
+                    _selectedFilterUser = null; // "With Me" mode
+                }
+                else
+                {
+                    _selectedFilterUser = selectedUser; // Filter mode
+                }
+
+                // Determine target user and filter mode
+                string targetUser = _selectedFilterUser ?? _currentUserName;
+                bool isFilterMode = !string.IsNullOrWhiteSpace(_selectedFilterUser);
+
+                // Filter actions for the selected user (exclude overdue)
+                _withMeActions = _openActions
                     .Where(a =>
                     {
                         string status = a.Status ?? "";
-                        bool isOpen = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase);
-
-                        bool isOverdue = isOpen
+                        bool isOverdue = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
                             && a.DueDate.HasValue
                             && a.DueDate.Value.Date < DateTime.Today;
 
-                        bool hasUser = !string.IsNullOrWhiteSpace(a.BallHolder) &&
-                                      IsUserInBallHolder(a.BallHolder, selectedUser);
+                        bool isWithUser = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrWhiteSpace(a.BallHolder)
+                            && (isFilterMode
+                                ? IsUserInBallHolder(a.BallHolder, targetUser)
+                                : IsAssignedToUser(a.BallHolder, targetUser));
 
-                        return isOpen && hasUser && !isOverdue;
+                        return isWithUser && !isOverdue;
                     })
                     .OrderBy(a => a.DueDate)
                     .ToList();
 
                 // Update the WithMe section
-                _withMeActions = filteredActions;
                 WithMeActionsComboBox.ItemsSource = _withMeActions;
-                WithMeLabel.Text = $"With {GetShortName(selectedUser)}: {_withMeActions.Count}";
+                WithMeLabel.Text = isFilterMode
+                    ? $"With {GetShortName(targetUser)}: {_withMeActions.Count}"
+                    : $"With Me: {_withMeActions.Count}";
 
                 // Update visibility
                 WithMeSection.Visibility = _withMeActions.Count > 0
@@ -3019,7 +3028,6 @@ namespace FastPMHelperAddin.UI
                     : Visibility.Collapsed;
 
                 // Update collapsed summary if Open Actions is collapsed
-                // Always show "With me:" based on current user's count
                 if (_isOpenActionsCollapsed)
                 {
                     int myActionsCount = _openActions
