@@ -729,45 +729,81 @@ namespace FastPMHelperAddin.UI
             string ballHolderNormalized = ballHolder.Trim().ToLowerInvariant();
             string userNameNormalized = userName.Trim().ToLowerInvariant();
 
-            // Check 1: Exact match (handles "Wally Cloud" == "Wally Cloud")
-            if (ballHolderNormalized.Contains(userNameNormalized))
-                return true;
-
             // Split user name into parts for flexible matching
-            string[] userParts = userNameNormalized.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] userParts = userNameNormalized.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
 
             if (userParts.Length == 0)
                 return false;
 
-            // Check 2: Full name match in reverse ("Cloud, Wally" or "Cloud Wally")
+            // Split ballHolder into words for word boundary checking
+            string[] ballHolderWords = ballHolderNormalized.Split(new[] { ' ', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+
+            // Check 1: For single name (e.g., "Martin"), only match as FIRST name
+            if (userParts.Length == 1)
+            {
+                string singleName = userParts[0];
+
+                // Match if it's the first word in ballHolder
+                if (ballHolderWords.Length > 0 && ballHolderWords[0] == singleName)
+                    return true;
+
+                // Also check for comma-reversed format where first name comes after comma
+                // e.g., "Price, Martin" should match "Martin"
+                for (int i = 0; i < ballHolderWords.Length - 1; i++)
+                {
+                    // If this word ends with comma in original (or is followed by comma), check next word
+                    if (i + 1 < ballHolderWords.Length && ballHolderWords[i + 1] == singleName)
+                    {
+                        // Verify there was actually a comma by checking original string
+                        int commaIndex = ballHolderNormalized.IndexOf(',');
+                        if (commaIndex >= 0 && ballHolderNormalized.IndexOf(singleName, commaIndex) > commaIndex)
+                            return true;
+                    }
+                }
+
+                return false;
+            }
+
+            // Check 2: For full names (2+ parts), check exact match or contains
+            if (ballHolderNormalized.Contains(userNameNormalized))
+                return true;
+
+            // Check 3: Full name match in reverse ("Price, Martin" for "Martin Price")
             if (userParts.Length >= 2)
             {
-                string reversedName = $"{userParts[userParts.Length - 1]} {userParts[0]}"; // "cloud wally"
+                string reversedName = $"{userParts[userParts.Length - 1]} {userParts[0]}"; // "price martin"
                 if (ballHolderNormalized.Contains(reversedName))
                     return true;
 
-                string reversedNameWithComma = $"{userParts[userParts.Length - 1]}, {userParts[0]}"; // "cloud, wally"
+                string reversedNameWithComma = $"{userParts[userParts.Length - 1]}, {userParts[0]}"; // "price, martin"
                 if (ballHolderNormalized.Contains(reversedNameWithComma))
                     return true;
             }
 
-            // Check 3: First name or Last name match (handles "Wally", "Cloud", "Wally C")
-            foreach (string part in userParts)
+            // Check 4: For full names, check if all parts appear as complete words
+            // This handles cases like "Martin Price" in "Martin P." or "M. Price"
+            if (userParts.Length >= 2)
             {
-                if (part.Length >= 2 && ballHolderNormalized.Contains(part))
-                    return true;
-            }
-
-            // Check 4: Initial matching (handles "W. Cloud", "Wally C.", "W.C.")
-            // For each part, check if BallHolder contains first letter + period
-            foreach (string part in userParts)
-            {
-                if (part.Length > 0)
+                bool allPartsMatch = true;
+                foreach (string userPart in userParts)
                 {
-                    string initial = $"{part[0]}.";
-                    if (ballHolderNormalized.Contains(initial))
-                        return true;
+                    if (userPart.Length < 2)
+                        continue;
+
+                    // Check if this part appears as a complete word OR as an initial
+                    bool partMatches = ballHolderWords.Any(w => w == userPart) ||
+                                       ballHolderWords.Any(w => w.StartsWith(userPart[0] + ".")) ||
+                                       ballHolderNormalized.Contains(userPart[0] + ".");
+
+                    if (!partMatches)
+                    {
+                        allPartsMatch = false;
+                        break;
+                    }
                 }
+
+                if (allPartsMatch)
+                    return true;
             }
 
             return false;
