@@ -1,16 +1,54 @@
-﻿Severity	Code	Description	Project	File	Line	Suppression State
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'OverdueSection'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	792	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'OverdueLabel'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	793	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'OverdueActionsComboBox'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	798	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'WithMeSection'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	805	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'WithMeLabel'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	806	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'WithMeActionsComboBox'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	811	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'ActionIdSearchBox'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	830	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'SearchActionButton'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	841	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardResultsSection'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	851	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardProjectText'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	884	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardPackageText'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	897	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardTitleText'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	910	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardBallHolderText'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	922	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardRelatedMessagesListView'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	937	Active
-Error	CS0102	The type 'ProjectActionPane' already contains a definition for 'DashboardOpenAllButton'	FastPMHelperAddin	C:\Users\wally\source\repos\FastPMHelperAddin\FastPMHelperAddin\UI\ProjectActionPane.xaml	978	Active
+﻿Status: Loading 1 related messages for Action 29...
+Starting retrieval of 1 related emails...
+Retrieved email via EntryID: RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off
+Retrieved 1/1 emails in 38ms
+Status: Dashboard: Loaded 1 messages for Action 29
+=== Inspectors_NewInspector EVENT FIRED ===
+  Inspector contains MailItem: RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off
+  Sent status: True
+  Email already sent - not a compose window
+=== Inspectors_NewInspector EVENT FIRED ===
+  Inspector contains MailItem: RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off
+  Sent status: False
+  Detected compose window - creating InspectorWrapper
+EmailProperties.ExtractFrom: ConversationID = '(null)'
+EmailProperties.ExtractFrom: ConversationID is null for draft, attempting save...
+EmailProperties.ExtractFrom: After save, ConversationID = '(null)'
+InspectorWrapper: WORKFLOW 1 - Open Actions reply
+InspectorWrapper:   Package: 'Piping Supply', Project: 'AMM25028'
+InspectorWrapper:   InReplyTo: '<DS7PR10MB5149B5D1F065181D3B0AB00BF3A9A@DS7PR10MB5149.namprd10.prod.outlook.com>'
+InspectorWrapper: Captured grouping - 2 linked, 1 package, 8 project, 39 other
+InspectorWrapper:   Linked: ID 28 - Review and confirm DMW sequence
+InspectorWrapper:   Linked: ID 29 - Confirm fastener inclusion and update PO
+InspectorWrapper created for Inspector 42478134
+[Ribbon-1] Static InvalidateCurrentRibbon called - forcing ribbon refresh
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B4150000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B4150000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B4150000'
+[Ribbon-1] GetUpdateActionPressed: Subject='RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off', Mode='', returning False
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B4150000'
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B4150000'
+[Ribbon-1] GetActionCount CALLED
+[Ribbon-1] Using CAPTURED grouping from InspectorWrapper
+[Ribbon-1]   Captured: 2 linked, 1 package, 8 project, 39 other
+[Ribbon-1]   Linked actions:
+[Ribbon-1]     - ID 28: Review and confirm DMW sequence
+[Ribbon-1]     - ID 29: Confirm fastener inclusion and update PO
+[Ribbon-1] PopulateDropdownActions complete - 50 actions
+[Ribbon-1] ▶ GetSelectedActionIndex CALLED
+[Ribbon-1] GetCurrentMailItem from control.Context: Subject='RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off', EntryID='000000004B2AF9A5D8879A4E89680BA410DEF65B07008DD7405E7CAE0344A4077836206B68FE00000000010F00008DD7405E7CAE0344A4077836206B68FE000572E3B4150000'
+[Ribbon-1]   MailItem Subject: 'RE: IPL003814-SOW-020_E2A - AMM25028 - E2A Pipeline Replacement Kick-off'
+[Ribbon-1]   Loaded data: Mode='', ActionID=
+[Ribbon-1]   ✓ RETURNING index 0 (auto-select first linked): Review and confirm DMW sequence
+=== Explorer_SelectionChange EVENT FIRED === (Time: 15:13:13.089)
+  Current Explorer: 37882063, Stored Explorer: 37882063
+  Selection count: 1
+  Selection type: __ComObject
+  Email selected: Automatic reply: AMM25028 - RFP for E2A to D4 Pipeline Replacement - Piping Fabrication & Supply [Saunders]
+  Sent status: True
+  Regular sent/received email - normal mode
+EmailProperties.ExtractFrom: ConversationID = '434F2D15FBC442B5BF97AF627F0569CF'
+  Property extraction took 1ms on COM thread
+OnEmailSelected called with: Automatic reply: AMM25028 - RFP for E2A to D4 Pipeline Replacement - Piping Fabrication & Supply [Saunders]
+  OnEmailSelected initial setup took 0ms on UI thread
+Email selection updated: Automatic reply: AMM25028 - RFP for E2A to D4 Pipeline Replacement - Piping Fabrication & Supply [Saunders]

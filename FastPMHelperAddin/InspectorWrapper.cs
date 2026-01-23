@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using FastPMHelperAddin.Services;
 using Outlook = Microsoft.Office.Interop.Outlook;
@@ -70,24 +71,102 @@ namespace FastPMHelperAddin
                 }
 
                 var openActions = actionPane.OpenActions;
-                var emailProps = actionPane.CurrentEmailProperties;
                 var groupingService = actionPane.GroupingService;
+                var dashboardAction = actionPane.DashboardSelectedAction;
+                var sidebarEmailProps = actionPane.CurrentEmailProperties;
 
-                if (openActions == null || emailProps == null || groupingService == null)
+                if (openActions == null || groupingService == null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper: Cannot capture grouping - openActions={openActions != null}, emailProps={emailProps != null}, groupingService={groupingService != null}");
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper: Cannot capture grouping - openActions={openActions != null}, groupingService={groupingService != null}");
                     return;
                 }
 
-                // Calculate grouping using the sidebar's current email context
+                // Extract properties from the actual mail item being composed
+                Models.EmailProperties mailItemProps = null;
+                if (_mailItem != null)
+                {
+                    mailItemProps = Models.EmailProperties.ExtractFrom(_mailItem);
+                }
+
+                // Determine the workflow type and appropriate context
+                string packageContext = "";
+                string projectContext = "";
+                string internetMessageId = "";
+                string inReplyToId = "";
+                string conversationId = "";
+
+                if (dashboardAction != null)
+                {
+                    // WORKFLOW 1: Open Actions double-click → Reply
+                    // Use dashboard action context + mail item properties
+                    packageContext = dashboardAction.Package ?? "";
+                    projectContext = dashboardAction.Project ?? "";
+
+                    if (mailItemProps != null)
+                    {
+                        internetMessageId = mailItemProps.InternetMessageId;
+                        inReplyToId = mailItemProps.InReplyToId;
+                        conversationId = mailItemProps.ConversationId;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper: WORKFLOW 1 - Open Actions reply");
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper:   Package: '{packageContext}', Project: '{projectContext}'");
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper:   InReplyTo: '{inReplyToId}'");
+                }
+                else if (sidebarEmailProps != null && mailItemProps != null &&
+                         IsMatchingSidebarEmail(sidebarEmailProps, mailItemProps))
+                {
+                    // WORKFLOW 2: Popout from sidebar
+                    // Sidebar email matches this mail item - use sidebar context and properties
+                    packageContext = actionPane.CurrentPackageContext ?? "";
+                    projectContext = actionPane.CurrentProjectContext ?? "";
+                    internetMessageId = sidebarEmailProps.InternetMessageId;
+                    inReplyToId = sidebarEmailProps.InReplyToId;
+                    conversationId = sidebarEmailProps.ConversationId;
+
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper: WORKFLOW 2 - Popout from sidebar");
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper:   Package: '{packageContext}', Project: '{projectContext}'");
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper:   Using sidebar email properties");
+                }
+                else
+                {
+                    // WORKFLOW 3: Reply from Inbox/Sent (or sidebar doesn't match)
+                    // Use mail item properties for everything
+                    if (mailItemProps != null)
+                    {
+                        internetMessageId = mailItemProps.InternetMessageId;
+                        inReplyToId = mailItemProps.InReplyToId;
+                        conversationId = mailItemProps.ConversationId;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper: WORKFLOW 3 - Reply from Inbox/Sent");
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper:   InReplyTo: '{inReplyToId}'");
+                    System.Diagnostics.Debug.WriteLine($"InspectorWrapper:   No package/project context (will be detected from linked actions)");
+                }
+
+                // Calculate grouping
                 CapturedGrouping = groupingService.GroupActions(
                     openActions,
-                    emailProps.InternetMessageId,
-                    emailProps.InReplyToId,
-                    emailProps.ConversationId,
-                    actionPane.CurrentPackageContext ?? "",
-                    actionPane.CurrentProjectContext ?? ""
+                    internetMessageId,
+                    inReplyToId,
+                    conversationId,
+                    packageContext,
+                    projectContext
                 );
+
+                // CRITICAL FIX for WORKFLOW 1: Ensure dashboard action is first in linked actions
+                if (dashboardAction != null && CapturedGrouping.LinkedActions.Count > 1)
+                {
+                    // Check if dashboard action is in the linked actions list
+                    var dashboardActionInList = CapturedGrouping.LinkedActions.FirstOrDefault(a => a.Id == dashboardAction.Id);
+                    if (dashboardActionInList != null)
+                    {
+                        // Remove it from current position and insert at beginning
+                        CapturedGrouping.LinkedActions.Remove(dashboardActionInList);
+                        CapturedGrouping.LinkedActions.Insert(0, dashboardActionInList);
+                        System.Diagnostics.Debug.WriteLine($"InspectorWrapper: Reordered linked actions - dashboard action {dashboardAction.Id} moved to first position");
+                    }
+                }
 
                 System.Diagnostics.Debug.WriteLine($"InspectorWrapper: Captured grouping - {CapturedGrouping.LinkedActions.Count} linked, {CapturedGrouping.PackageActions.Count} package, {CapturedGrouping.ProjectActions.Count} project, {CapturedGrouping.OtherActions.Count} other");
 
@@ -103,6 +182,49 @@ namespace FastPMHelperAddin
             {
                 System.Diagnostics.Debug.WriteLine($"InspectorWrapper: Error capturing grouping: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Checks if the sidebar's email matches the mail item being composed.
+        /// Used to detect if this is a popout from sidebar vs a reply from inbox/sent.
+        /// </summary>
+        private bool IsMatchingSidebarEmail(Models.EmailProperties sidebarProps, Models.EmailProperties mailItemProps)
+        {
+            // For compose mode (reply), the mail item's InReplyTo should match the sidebar's MessageID
+            // Or the ConversationIDs should match
+            if (!string.IsNullOrEmpty(mailItemProps.InReplyToId) &&
+                !string.IsNullOrEmpty(sidebarProps.InternetMessageId))
+            {
+                string normalizedInReplyTo = NormalizeMessageId(mailItemProps.InReplyToId);
+                string normalizedSidebarMsgId = NormalizeMessageId(sidebarProps.InternetMessageId);
+
+                if (normalizedInReplyTo == normalizedSidebarMsgId)
+                {
+                    return true;
+                }
+            }
+
+            // Fallback: Check ConversationID match
+            if (!string.IsNullOrEmpty(mailItemProps.ConversationId) &&
+                !string.IsNullOrEmpty(sidebarProps.ConversationId) &&
+                mailItemProps.ConversationId == sidebarProps.ConversationId)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private string NormalizeMessageId(string messageId)
+        {
+            if (string.IsNullOrWhiteSpace(messageId))
+                return string.Empty;
+
+            messageId = messageId.Trim();
+            if (messageId.StartsWith("<") && messageId.EndsWith(">"))
+                messageId = messageId.Substring(1, messageId.Length - 2);
+
+            return messageId;
         }
 
         private void InspectorWrapper_Close()

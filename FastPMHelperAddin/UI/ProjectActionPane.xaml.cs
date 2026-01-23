@@ -37,6 +37,7 @@ namespace FastPMHelperAddin.UI
         public EmailProperties CurrentEmailProperties => _currentEmailProperties;
         public string CurrentPackageContext => _currentPackageContext;
         public string CurrentProjectContext => _currentProjectContext;
+        public ActionItem DashboardSelectedAction => _dashboardSelectedAction;
 
         // Queue for processing actions
         private Queue<Func<Task>> _actionQueue = new Queue<Func<Task>>();
