@@ -2189,6 +2189,21 @@ namespace FastPMHelperAddin.UI
             {
                 try
                 {
+                    // Store the action mapping so it's preserved when user replies
+                    var selectedDropdownItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                    if (selectedDropdownItem?.ItemType == ActionDropdownItemType.Action)
+                    {
+                        var selectedAction = selectedDropdownItem.Action;
+                        if (selectedAction != null)
+                        {
+                            var emailProps = Models.EmailProperties.ExtractFrom(selectedItem.MailItem);
+                            if (emailProps != null && !string.IsNullOrEmpty(emailProps.InternetMessageId))
+                            {
+                                Globals.ThisAddIn.StoreEmailActionMapping(emailProps.InternetMessageId, selectedAction);
+                            }
+                        }
+                    }
+
                     // Open email in modeless window (non-blocking)
                     selectedItem.MailItem.Display(false);
                 }
@@ -2219,12 +2234,26 @@ namespace FastPMHelperAddin.UI
                 int opened = 0;
                 int failed = 0;
 
+                // Get the currently selected action for mapping
+                var selectedDropdownItem = ActionComboBox.SelectedItem as ActionDropdownItem;
+                var selectedAction = selectedDropdownItem?.ItemType == ActionDropdownItemType.Action ? selectedDropdownItem.Action : null;
+
                 foreach (var email in relatedEmails)
                 {
                     if (email?.MailItem != null)
                     {
                         try
                         {
+                            // Store the action mapping so it's preserved when user replies
+                            if (selectedAction != null)
+                            {
+                                var emailProps = Models.EmailProperties.ExtractFrom(email.MailItem);
+                                if (emailProps != null && !string.IsNullOrEmpty(emailProps.InternetMessageId))
+                                {
+                                    Globals.ThisAddIn.StoreEmailActionMapping(emailProps.InternetMessageId, selectedAction);
+                                }
+                            }
+
                             // Open email in modeless window (non-blocking)
                             email.MailItem.Display(false);
                             opened++;
@@ -3244,6 +3273,17 @@ namespace FastPMHelperAddin.UI
             {
                 try
                 {
+                    // Store the action mapping so it's preserved when user replies
+                    if (_dashboardSelectedAction != null)
+                    {
+                        var emailProps = Models.EmailProperties.ExtractFrom(selectedItem.MailItem);
+                        if (emailProps != null && !string.IsNullOrEmpty(emailProps.InternetMessageId))
+                        {
+                            Globals.ThisAddIn.StoreEmailActionMapping(emailProps.InternetMessageId, _dashboardSelectedAction);
+                        }
+                    }
+
+                    // Open email in modeless window (non-blocking)
                     selectedItem.MailItem.Display(false);
                 }
                 catch (Exception ex)
@@ -3281,6 +3321,16 @@ namespace FastPMHelperAddin.UI
                     {
                         if (email.MailItem != null)
                         {
+                            // Store the action mapping so it's preserved when user replies
+                            if (_dashboardSelectedAction != null)
+                            {
+                                var emailProps = Models.EmailProperties.ExtractFrom(email.MailItem);
+                                if (emailProps != null && !string.IsNullOrEmpty(emailProps.InternetMessageId))
+                                {
+                                    Globals.ThisAddIn.StoreEmailActionMapping(emailProps.InternetMessageId, _dashboardSelectedAction);
+                                }
+                            }
+
                             email.MailItem.Display(false);
                             opened++;
                         }

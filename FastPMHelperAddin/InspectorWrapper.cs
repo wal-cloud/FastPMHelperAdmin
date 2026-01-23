@@ -88,6 +88,19 @@ namespace FastPMHelperAddin
                     mailItemProps = Models.EmailProperties.ExtractFrom(_mailItem);
                 }
 
+                // Check for stored email-to-action mapping (highest priority)
+                // This preserves the action selected when the email was opened
+                Models.ActionItem storedAction = null;
+                if (mailItemProps != null && !string.IsNullOrEmpty(mailItemProps.InReplyToId))
+                {
+                    storedAction = Globals.ThisAddIn.GetAndClearEmailActionMapping(mailItemProps.InReplyToId);
+                    if (storedAction != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"InspectorWrapper: Found stored action mapping for this reply - using Action {storedAction.Id} ({storedAction.Title})");
+                        dashboardAction = storedAction; // Override current dashboard action with stored one
+                    }
+                }
+
                 // Determine the workflow type and appropriate context
                 string packageContext = "";
                 string projectContext = "";

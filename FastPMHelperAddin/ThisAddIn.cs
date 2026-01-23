@@ -22,6 +22,10 @@ namespace FastPMHelperAddin
         private Outlook.Inspectors _inspectors;
         private Dictionary<string, InspectorWrapper> _inspectorWrappers = new Dictionary<string, InspectorWrapper>();
 
+        // Maps email InternetMessageID -> selected ActionItem (for Open Actions workflow)
+        // Preserves the action selection when user opens email from dashboard, then replies
+        private Dictionary<string, Models.ActionItem> _emailToActionMapping = new Dictionary<string, Models.ActionItem>();
+
         private const string RootPath = @"C:\MailPipeline";
         private const string TrackedEmailAccount = "wally.cloud@dynonobel.com";
 
@@ -429,6 +433,9 @@ namespace FastPMHelperAddin
                 // Clean up InspectorWrapper dictionary
                 _inspectorWrappers.Clear();
 
+                // Clean up email-to-action mapping
+                _emailToActionMapping.Clear();
+
                 System.Diagnostics.Debug.WriteLine("MailPipeline add-in shut down successfully");
             }
             catch (Exception ex)
@@ -727,6 +734,59 @@ namespace FastPMHelperAddin
             {
                 System.Diagnostics.Debug.WriteLine($"Error in OnInspectorClose: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Stores an action selection for an email (when opened from Open Actions dashboard).
+        /// This preserves the selected action even if the user changes the dashboard selection before replying.
+        /// </summary>
+        public void StoreEmailActionMapping(string internetMessageId, Models.ActionItem action)
+        {
+            if (string.IsNullOrEmpty(internetMessageId) || action == null)
+                return;
+
+            // Normalize the message ID
+            string normalizedId = NormalizeMessageId(internetMessageId);
+            if (string.IsNullOrEmpty(normalizedId))
+                return;
+
+            _emailToActionMapping[normalizedId] = action;
+            System.Diagnostics.Debug.WriteLine($"ThisAddIn: Stored action mapping - MessageID '{normalizedId}' -> Action {action.Id} ({action.Title})");
+        }
+
+        /// <summary>
+        /// Retrieves and removes the stored action for an email's reply.
+        /// Returns null if no mapping exists.
+        /// </summary>
+        public Models.ActionItem GetAndClearEmailActionMapping(string inReplyToId)
+        {
+            if (string.IsNullOrEmpty(inReplyToId))
+                return null;
+
+            string normalizedId = NormalizeMessageId(inReplyToId);
+            if (string.IsNullOrEmpty(normalizedId))
+                return null;
+
+            if (_emailToActionMapping.TryGetValue(normalizedId, out var action))
+            {
+                _emailToActionMapping.Remove(normalizedId);
+                System.Diagnostics.Debug.WriteLine($"ThisAddIn: Retrieved and cleared action mapping - InReplyTo '{normalizedId}' -> Action {action.Id} ({action.Title})");
+                return action;
+            }
+
+            return null;
+        }
+
+        private string NormalizeMessageId(string messageId)
+        {
+            if (string.IsNullOrWhiteSpace(messageId))
+                return string.Empty;
+
+            messageId = messageId.Trim();
+            if (messageId.StartsWith("<") && messageId.EndsWith(">"))
+                messageId = messageId.Substring(1, messageId.Length - 2);
+
+            return messageId;
         }
 
         #endregion
