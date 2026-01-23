@@ -362,32 +362,33 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <!-- Label and Expand Button -->
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock x:Name="WithMeLabel"
-                                                   FontWeight="SemiBold"
-                                                   FontSize="12"
-                                                   Foreground="#FFA000"
-                                                   VerticalAlignment="Center"/>
+                                    <!-- Label -->
+                                    <TextBlock x:Name="WithMeLabel"
+                                               Grid.Column="0"
+                                               FontWeight="SemiBold"
+                                               FontSize="12"
+                                               Foreground="#FFA000"
+                                               VerticalAlignment="Center"/>
 
-                                        <!-- Expand to filter button (visible in "With Me" mode) -->
-                                        <Button x:Name="ExpandUserFilterButton"
-                                                Content="⋯"
-                                                FontSize="12"
-                                                Width="24"
-                                                Height="20"
-                                                Padding="0"
-                                                Margin="4,0,0,0"
-                                                Style="{StaticResource ModernButtonSecondary}"
-                                                Click="ExpandUserFilterButton_Click"
-                                                ToolTip="Filter by any user"/>
-                                    </StackPanel>
+                                    <!-- Expand to filter button (visible in "With Me" mode) -->
+                                    <Button x:Name="ExpandUserFilterButton"
+                                            Grid.Column="2"
+                                            Content="⋯"
+                                            FontSize="12"
+                                            Width="24"
+                                            Height="20"
+                                            Padding="0"
+                                            Margin="0,0,4,0"
+                                            Style="{StaticResource ModernButtonSecondary}"
+                                            Click="ExpandUserFilterButton_Click"
+                                            ToolTip="Filter by any user"/>
 
                                     <!-- User Filter Dropdown (visible in expanded mode) -->
                                     <ComboBox x:Name="UserFilterComboBox"
-                                              Grid.Column="2"
+                                              Grid.Column="3"
                                               Style="{StaticResource ModernComboBox}"
                                               Visibility="Collapsed"
                                               SelectionChanged="UserFilterComboBox_SelectionChanged"
@@ -399,7 +400,7 @@
 
                                     <!-- Reset to Me button (visible in expanded mode) -->
                                     <Button x:Name="ResetToMeButton"
-                                            Grid.Column="3"
+                                            Grid.Column="4"
                                             Content="✕"
                                             FontSize="14"
                                             Width="24"
@@ -613,6 +614,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <TextBlock Grid.Column="0"
@@ -629,6 +631,26 @@
                                    FontSize="16"
                                    Foreground="{StaticResource TextPrimary}"
                                    VerticalAlignment="Center"/>
+
+                        <!-- Health Indicators on RHS -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <!-- Overdue Indicator (Red Dot) -->
+                            <Ellipse x:Name="OverdueIndicator"
+                                     Width="10"
+                                     Height="10"
+                                     Fill="#D32F2F"
+                                     Margin="0,0,4,0"
+                                     Visibility="Collapsed"
+                                     ToolTip="Action is Overdue"/>
+
+                            <!-- With Me Indicator (Amber/Gold Dot) -->
+                            <Ellipse x:Name="WithMeIndicator"
+                                     Width="10"
+                                     Height="10"
+                                     Fill="#FFA000"
+                                     Visibility="Collapsed"
+                                     ToolTip="Assigned to You"/>
+                        </StackPanel>
                     </Grid>
 
                     <!-- Action ComboBox (always visible even when collapsed) -->
@@ -673,26 +695,6 @@
                             </Style>
                         </Border.Style>
                         <StackPanel>
-                            <!-- Health Indicators -->
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                                <!-- Overdue Indicator (Red Dot) -->
-                                <Ellipse x:Name="OverdueIndicator"
-                                         Width="10"
-                                         Height="10"
-                                         Fill="#D32F2F"
-                                         Margin="0,0,4,0"
-                                         Visibility="Collapsed"
-                                         ToolTip="Action is Overdue"/>
-
-                                <!-- With Me Indicator (Amber/Gold Dot) -->
-                                <Ellipse x:Name="WithMeIndicator"
-                                         Width="10"
-                                         Height="10"
-                                         Fill="#FFA000"
-                                         Visibility="Collapsed"
-                                         ToolTip="Assigned to You"/>
-                            </StackPanel>
-
                             <!-- Editable Fields -->
                             <StackPanel>
                         <!-- Project/Package on same line -->
