@@ -62,6 +62,10 @@ namespace FastPMHelperAddin.UI
         private List<ActionItem> _withMeActions;
         private ActionItem _dashboardSelectedAction;
 
+        // User filter state
+        private bool _isUserFilterExpanded = false;
+        private string _selectedFilterUser = null; // null = "With Me" mode, otherwise filtered user name
+
         // Collapse/Expand state
         private bool _isOpenActionsCollapsed = false;
         private bool _isLinkedActionCollapsed = false;
@@ -221,7 +225,14 @@ namespace FastPMHelperAddin.UI
                 .OrderBy(a => a.DueDate)
                 .ToList();
 
-            // Filter with me actions (exclude overdue to avoid duplicates)
+            // Filter with me/user actions (exclude overdue to avoid duplicates)
+            // If user filter is active, filter by selected user; otherwise filter by current user
+            string targetUser = _isUserFilterExpanded && !string.IsNullOrWhiteSpace(_selectedFilterUser)
+                ? _selectedFilterUser
+                : _currentUserName;
+
+            bool isFilterMode = _isUserFilterExpanded && !string.IsNullOrWhiteSpace(_selectedFilterUser);
+
             _withMeActions = _openActions
                 .Where(a =>
                 {
@@ -230,18 +241,28 @@ namespace FastPMHelperAddin.UI
                         && a.DueDate.HasValue
                         && a.DueDate.Value.Date < DateTime.Today;
 
-                    bool isWithMe = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                    bool isWithUser = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
                         && !string.IsNullOrWhiteSpace(a.BallHolder)
-                        && IsAssignedToUser(a.BallHolder, _currentUserName);
+                        && (isFilterMode
+                            ? IsUserInBallHolder(a.BallHolder, targetUser)
+                            : IsAssignedToUser(a.BallHolder, targetUser));
 
-                    return isWithMe && !isOverdue;
+                    return isWithUser && !isOverdue;
                 })
                 .OrderBy(a => a.DueDate)
                 .ToList();
 
             // Update labels with counts
             OverdueLabel.Text = $"Overdue: {_overdueActions.Count}";
-            WithMeLabel.Text = $"With Me: {_withMeActions.Count}";
+
+            if (isFilterMode)
+            {
+                WithMeLabel.Text = $"With {GetShortName(targetUser)}: {_withMeActions.Count}";
+            }
+            else
+            {
+                WithMeLabel.Text = $"With Me: {_withMeActions.Count}";
+            }
 
             // Bind to UI
             OverdueActionsComboBox.ItemsSource = _overdueActions;
@@ -257,9 +278,26 @@ namespace FastPMHelperAddin.UI
                 : Visibility.Collapsed;
 
             // Update collapsed summary if Open Actions is collapsed
+            // Always show "With me:" and calculate count based on current user
             if (_isOpenActionsCollapsed)
             {
-                OpenActionsCollapsedSummary.Text = $"Overdue: {_overdueActions.Count}, With me: {_withMeActions.Count}";
+                int myActionsCount = _openActions
+                    .Where(a =>
+                    {
+                        string status = a.Status ?? "";
+                        bool isOverdue = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                            && a.DueDate.HasValue
+                            && a.DueDate.Value.Date < DateTime.Today;
+
+                        bool isWithMe = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrWhiteSpace(a.BallHolder)
+                            && IsAssignedToUser(a.BallHolder, _currentUserName);
+
+                        return isWithMe && !isOverdue;
+                    })
+                    .Count();
+
+                OpenActionsCollapsedSummary.Text = $"Overdue: {_overdueActions.Count}, With me: {myActionsCount}";
             }
         }
 
@@ -2813,6 +2851,170 @@ namespace FastPMHelperAddin.UI
             }
         }
 
+        private void ExpandUserFilterButton_Click(object sender, RoutedEventArgs e)
+        {
+            _isUserFilterExpanded = true;
+
+            // Get all unique users from BallHolder fields (split by semicolon)
+            var allUsers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (_openActions != null)
+            {
+                foreach (var action in _openActions)
+                {
+                    if (!string.IsNullOrWhiteSpace(action.BallHolder))
+                    {
+                        // Split by semicolon and add each user
+                        var users = action.BallHolder.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var user in users)
+                        {
+                            var trimmedUser = user.Trim();
+                            if (!string.IsNullOrWhiteSpace(trimmedUser))
+                            {
+                                allUsers.Add(trimmedUser);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Populate user filter dropdown
+            var sortedUsers = allUsers.OrderBy(u => u).ToList();
+            UserFilterComboBox.ItemsSource = sortedUsers;
+
+            // Select current user by default if they exist in the list
+            var currentUserMatch = sortedUsers.FirstOrDefault(u =>
+                u.Equals(_currentUserName, StringComparison.OrdinalIgnoreCase) ||
+                IsAssignedToUser(u, _currentUserName));
+
+            if (currentUserMatch != null)
+            {
+                UserFilterComboBox.SelectedItem = currentUserMatch;
+            }
+            else if (sortedUsers.Count > 0)
+            {
+                UserFilterComboBox.SelectedIndex = 0;
+            }
+
+            // Update UI
+            WithMeLabel.Text = "With...";
+            ExpandUserFilterButton.Visibility = Visibility.Collapsed;
+            UserFilterComboBox.Visibility = Visibility.Visible;
+            ResetToMeButton.Visibility = Visibility.Visible;
+        }
+
+        private void ResetToMeButton_Click(object sender, RoutedEventArgs e)
+        {
+            _isUserFilterExpanded = false;
+            _selectedFilterUser = null;
+
+            // Update UI
+            ExpandUserFilterButton.Visibility = Visibility.Visible;
+            UserFilterComboBox.Visibility = Visibility.Collapsed;
+            ResetToMeButton.Visibility = Visibility.Collapsed;
+
+            // Refresh dashboard to show "With Me" again
+            RefreshDashboard();
+        }
+
+        private void UserFilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (UserFilterComboBox.SelectedItem is string selectedUser)
+            {
+                _selectedFilterUser = selectedUser;
+
+                // Filter actions where selected user appears in BallHolder
+                var filteredActions = _openActions
+                    .Where(a =>
+                    {
+                        string status = a.Status ?? "";
+                        bool isOpen = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase);
+
+                        bool isOverdue = isOpen
+                            && a.DueDate.HasValue
+                            && a.DueDate.Value.Date < DateTime.Today;
+
+                        bool hasUser = !string.IsNullOrWhiteSpace(a.BallHolder) &&
+                                      IsUserInBallHolder(a.BallHolder, selectedUser);
+
+                        return isOpen && hasUser && !isOverdue;
+                    })
+                    .OrderBy(a => a.DueDate)
+                    .ToList();
+
+                // Update the WithMe section
+                _withMeActions = filteredActions;
+                WithMeActionsComboBox.ItemsSource = _withMeActions;
+                WithMeLabel.Text = $"With {GetShortName(selectedUser)}: {_withMeActions.Count}";
+
+                // Update visibility
+                WithMeSection.Visibility = _withMeActions.Count > 0
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+
+                // Update collapsed summary if Open Actions is collapsed
+                // Always show "With me:" based on current user's count
+                if (_isOpenActionsCollapsed)
+                {
+                    int myActionsCount = _openActions
+                        .Where(a =>
+                        {
+                            string status = a.Status ?? "";
+                            bool isOverdue = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                                && a.DueDate.HasValue
+                                && a.DueDate.Value.Date < DateTime.Today;
+
+                            bool isWithMe = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                                && !string.IsNullOrWhiteSpace(a.BallHolder)
+                                && IsAssignedToUser(a.BallHolder, _currentUserName);
+
+                            return isWithMe && !isOverdue;
+                        })
+                        .Count();
+
+                    OpenActionsCollapsedSummary.Text = $"Overdue: {_overdueActions?.Count ?? 0}, With me: {myActionsCount}";
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks if a user appears in the BallHolder field (handles multi-user assignments with semicolons)
+        /// </summary>
+        private bool IsUserInBallHolder(string ballHolder, string userName)
+        {
+            if (string.IsNullOrWhiteSpace(ballHolder) || string.IsNullOrWhiteSpace(userName))
+                return false;
+
+            // Split by semicolon to handle multiple users
+            var users = ballHolder.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var user in users)
+            {
+                var trimmedUser = user.Trim();
+                // Check if this user matches the target
+                if (trimmedUser.Equals(userName, StringComparison.OrdinalIgnoreCase) ||
+                    IsAssignedToUser(trimmedUser, userName))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Gets a shortened version of a user name for display (first name only)
+        /// </summary>
+        private string GetShortName(string fullName)
+        {
+            if (string.IsNullOrWhiteSpace(fullName))
+                return "";
+
+            // If name contains a space, return first part
+            var parts = fullName.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length > 0 ? parts[0] : fullName;
+        }
+
         private void SearchActionButton_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -3103,12 +3305,10 @@ namespace FastPMHelperAddin.UI
 
         private void OpenActionsHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            // Cannot collapse if Linked Action is already collapsed
+            // If Linked Action is collapsed, expand it first
             if (_isLinkedActionCollapsed && !_isOpenActionsCollapsed)
             {
-                // Cannot close this one, so expand the other instead
                 ToggleLinkedActionCollapse();
-                return;
             }
 
             ToggleOpenActionsCollapse();
@@ -3116,12 +3316,10 @@ namespace FastPMHelperAddin.UI
 
         private void LinkedActionHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            // Cannot collapse if Open Actions is already collapsed
+            // If Open Actions is collapsed, expand it first
             if (_isOpenActionsCollapsed && !_isLinkedActionCollapsed)
             {
-                // Cannot close this one, so expand the other instead
                 ToggleOpenActionsCollapse();
-                return;
             }
 
             ToggleLinkedActionCollapse();
@@ -3140,14 +3338,29 @@ namespace FastPMHelperAddin.UI
                 OpenActionsContent.Visibility = Visibility.Collapsed;
                 OpenActionsExpandIcon.Text = "▶";
 
-                // Show collapsed summary
+                // Show collapsed summary - always show current user's count, not filtered user
                 int overdueCount = _overdueActions?.Count ?? 0;
-                int withMeCount = _withMeActions?.Count ?? 0;
-                OpenActionsCollapsedSummary.Text = $"Overdue: {overdueCount}, With me: {withMeCount}";
+                int myActionsCount = _openActions?
+                    .Where(a =>
+                    {
+                        string status = a.Status ?? "";
+                        bool isOverdue = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                            && a.DueDate.HasValue
+                            && a.DueDate.Value.Date < DateTime.Today;
+
+                        bool isWithMe = !status.Equals("Closed", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrWhiteSpace(a.BallHolder)
+                            && IsAssignedToUser(a.BallHolder, _currentUserName);
+
+                        return isWithMe && !isOverdue;
+                    })
+                    .Count() ?? 0;
+                OpenActionsCollapsedSummary.Text = $"Overdue: {overdueCount}, With me: {myActionsCount}";
                 OpenActionsCollapsedSummary.Visibility = Visibility.Visible;
 
                 // Resize to minimal height (just header)
-                OpenActionsRow.Height = new GridLength(60);
+                OpenActionsRow.MinHeight = 0;
+                OpenActionsRow.Height = new GridLength(50);
             }
             else
             {
@@ -3155,6 +3368,9 @@ namespace FastPMHelperAddin.UI
                 OpenActionsContent.Visibility = Visibility.Visible;
                 OpenActionsExpandIcon.Text = "▼";
                 OpenActionsCollapsedSummary.Visibility = Visibility.Collapsed;
+
+                // Restore MinHeight
+                OpenActionsRow.MinHeight = 100;
 
                 // Restore previous height (or default if not set)
                 if (_savedOpenActionsHeight.Value > 0)
@@ -3182,13 +3398,17 @@ namespace FastPMHelperAddin.UI
                 LinkedActionExpandIcon.Text = "▶";
 
                 // Resize to minimal height (just header + dropdown)
-                LinkedActionRow.Height = new GridLength(100);
+                LinkedActionRow.MinHeight = 0;
+                LinkedActionRow.Height = new GridLength(92);
             }
             else
             {
                 // Expand: show content and restore previous height
                 LinkedActionContent.Visibility = Visibility.Visible;
                 LinkedActionExpandIcon.Text = "▼";
+
+                // Restore MinHeight
+                LinkedActionRow.MinHeight = 150;
 
                 // Restore previous height (or default if not set)
                 if (_savedLinkedActionHeight.Value > 0)
